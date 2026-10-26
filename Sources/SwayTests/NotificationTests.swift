@@ -281,6 +281,10 @@ let notificationTests: [TestCase] = [
         log.record(InterventionDecision(deliver: nil, statuses: [], hold: .likelyInCall), now: t0 + 10)
         log.record(InterventionDecision(deliver: nil, statuses: [], hold: nil), now: t0 + 15)
         expectEqual(log.entries.last?.text, "Hold ended; reminders resume after a short pause")
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: .likelyInCall), now: t0 + 20)
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: .notificationsOff), now: t0 + 25)
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: nil), now: t0 + 30)
+        expectEqual(log.entries.last?.text, "Hold ended; reminders resume after a short pause", "the call earlier in the stretch still settles")
     },
     TestCase(name: "the decision log records changes once, with reasons") {
         var c = Coach()

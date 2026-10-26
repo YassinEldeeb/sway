@@ -48,8 +48,10 @@ public struct DecisionLog: Codable, Equatable, Sendable {
             } else if lastHold != nil {
                 add(now, nil, lastHoldSettles ? "Hold ended; reminders resume after a short pause" : "Hold ended; reminders resume")
             }
+            // A pause follows if any hold in this held stretch settles (a
+            // call, then notifications turned off and on, still settles).
+            lastHoldSettles = hold == nil ? false : (lastHold == nil ? false : lastHoldSettles) || (d.hold?.settles ?? false)
             lastHold = hold
-            lastHoldSettles = d.hold?.settles ?? false
         }
         var seen = Set<String>()
         for s in d.statuses {

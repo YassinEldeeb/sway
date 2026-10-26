@@ -215,7 +215,7 @@ final class AppModel: ObservableObject {
 
     // MARK: Tick
 
-    private func tick() {
+    func tick() {
         now = Date()
         let day = DayKey.key(now)
         if day != currentDay {
@@ -270,6 +270,7 @@ final class AppModel: ObservableObject {
     }
 
     private func evaluate() {
+        guard notifications.answered else { return }
         var candidates = BreakScheduler.due(now: now, tracker: runtime.tracker, settings: settings, adjustments: adjustments)
         let breakDueAt = candidates.filter(\.kind.isBreak).map(\.dueAt).max()
         if guidedBreak == nil {

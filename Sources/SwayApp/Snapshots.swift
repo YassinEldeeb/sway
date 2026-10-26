@@ -93,6 +93,13 @@ enum Snapshots {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let model = AppModel.shared
         model.start()
+        // Reminders are decided only once macOS has said whether Sway may
+        // show notifications; give it a moment, as the running app does.
+        let deadline = Date().addingTimeInterval(3)
+        while !model.notifications.answered, Date() < deadline {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        model.tick()
         var shots: [(String, CGSize, AnyView)] = [
             ("menu", CGSize(width: 340, height: 470), AnyView(MenuView())),
             ("dashboard-today", CGSize(width: 900, height: 900), AnyView(DashboardView(tab: .today))),

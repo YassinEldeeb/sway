@@ -79,16 +79,19 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         }
     }
 
-    /// Whether macOS has answered since launch. Until it has, Sway assumes
-    /// notifications work rather than flash a false "held" line.
+    /// Whether macOS has answered since launch (a moment after it starts).
     private var known = false
+    /// Until then, whether a notification would show is unknown: the app
+    /// decides nothing rather than send into the void or flash a false
+    /// "held" line.
+    /// (Tooling runs never set notifications up and never wait.)
+    var answered: Bool { known || !isSetUp }
     private var showsBanners = true
 
     /// Whether a posted notification would actually appear: allowed, and
     /// with banners or alerts (style "None" only collects them silently).
     var canShow: Bool {
         guard isAvailable else { return false }
-        guard known else { return true }
         return (authorization == .authorized || authorization == .provisional) && showsBanners
     }
 
