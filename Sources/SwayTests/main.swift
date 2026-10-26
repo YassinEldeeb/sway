@@ -8,5 +8,6 @@ let code = runAll([
     ("Review regressions", regressionTests),
     ("Notifications", notificationTests),
     ("Saved-file compatibility", compatibilityTests),
+    ("Patterns & calibration health", patternTests),
 ])
 exit(code)

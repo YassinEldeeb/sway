@@ -197,8 +197,14 @@ public struct PostureEngine: Sendable {
         let yawDelta = (o.yaw.flatMap { y in b.yaw.map { abs(y - $0) } }) ?? 0
         let facingScreen = yawDelta <= Self.maxYawDelta
 
+        // Far outside the calibrated geometry (much further left or right,
+        // or a very different size): the camera or screen probably moved, so
+        // this frame gives no posture estimate at all. If it persists, the
+        // health monitor says the calibration looks out of date.
+        var offGeometry = false
         if hasFace, o.faceCount == 1, o.faceConfidence >= settings.minFaceConfidence, let c = o.faceCenter {
-            health.update(off: CalibrationHealthMonitor.isOff(offset: abs(c.x - b.faceCenter.x), sizeRatio: sizeRatio), at: t)
+            offGeometry = CalibrationHealthMonitor.isOff(offset: abs(c.x - b.faceCenter.x), sizeRatio: sizeRatio)
+            health.update(off: offGeometry, at: t)
         } else {
             health.update(off: nil, at: t)
         }
@@ -241,7 +247,7 @@ public struct PostureEngine: Sendable {
                 values[.shoulderAsymmetry] = .some(nil)
             }
         }
-        if !reliable || health.isSuspect {
+        if !reliable || health.isSuspect || offGeometry {
             // Not enough good data recently, or the calibration no longer
             // fits the setup: treat everything as unknown.
             values = [:]
@@ -253,7 +259,7 @@ public struct PostureEngine: Sendable {
             motion.add(t: t, x: c.x / b.faceHeight, y: c.y / b.faceHeight, roll: o.roll ?? 0)
         }
         var staticValue: Double?
-        if plausible, reliable, !health.isSuspect, motion.covers(0.8) {
+        if plausible, reliable, !health.isSuspect, !offGeometry, motion.covers(0.8) {
             staticValue = motion.motion < settings.staticMotionThreshold ? 1 : 0
         }
 
@@ -278,7 +284,7 @@ public struct PostureEngine: Sendable {
             status = (lastFaceAt.map { t.timeIntervalSince($0) < 10 } ?? false) ? status : .searching
         } else if health.isSuspect {
             status = .calibrationSuspect
-        } else if !reliable || !plausible {
+        } else if !reliable || !plausible || offGeometry {
             status = .lowConfidence
         } else if !facingScreen {
             status = .lookingAway
