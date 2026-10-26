@@ -331,6 +331,7 @@ private struct DiagnosticsView: View {
                 row("CPU (last 30 s)", model.resourceSample.map { String(format: "%.2f%% of one core", $0.cpuPercent) } ?? "measuring…")
                 row("Memory footprint", model.resourceSample.map { String(format: "%.0f MB", $0.footprintMB) } ?? "measuring…")
                 row("Camera", model.cameraState.label)
+                row("Camera permission", permissionLabel)
                 row("Frames analysed", "\(model.visionStats.framesProcessed)")
                 row("Vision time per frame", model.visionStats.framesProcessed > 0 ? String(format: "%.1f ms avg · %.1f ms last", model.visionStats.averageMs, model.visionStats.lastMs) : "—")
                 row("Tracking", "\(model.posture.status.label) · reliability \(Int(model.posture.reliability * 100))%")
@@ -353,6 +354,16 @@ private struct DiagnosticsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var permissionLabel: String {
+        switch model.cameraAuthorization {
+        case .authorized: return "Allowed"
+        case .notDetermined: return "Not asked yet"
+        case .denied: return "Denied (System Settings → Privacy & Security → Camera)"
+        case .restricted: return "Restricted by this Mac"
+        @unknown default: return "Unknown"
+        }
     }
 
     /// Says where a reading stands: under the line, over it and being

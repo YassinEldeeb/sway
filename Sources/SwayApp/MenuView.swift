@@ -198,6 +198,7 @@ struct MenuView: View {
     private var postureSubtitle: String {
         if !model.settings.cameraMonitoringEnabled { return model.calibration == nil ? "Optional · uses the camera locally" : "Off" }
         if model.cameraAuthorization == .denied || model.cameraAuthorization == .restricted { return "Camera access denied in System Settings" }
+        if model.cameraAuthorization == .notDetermined { return "Waiting for camera permission" }
         if model.isPaused { return "Paused" }
         if !model.tracker.isActive { return "Camera off while you're away" }
         switch model.cameraState {

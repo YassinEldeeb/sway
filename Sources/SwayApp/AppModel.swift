@@ -114,6 +114,7 @@ final class AppModel: ObservableObject {
     private var lastPersonalization = Date.distantPast
     private var lastResourceSample = Date.distantPast
     private var lastCameraAttempt = Date.distantPast
+    private var askedCameraThisLaunch = false
     private var lastCameraAccounting: Date?
     private var lastPrune = Date.distantPast
     private var currentDay = DayKey.key(Date())
@@ -337,6 +338,7 @@ final class AppModel: ObservableObject {
     }
 
     private func updateCamera() {
+        askForCameraIfNeeded()
         let running = cameraState.isRunning || cameraState == .starting
         if wantsCamera {
             if running {
@@ -352,6 +354,17 @@ final class AppModel: ObservableObject {
         if !wantsCamera, posture.status != .off || !posture.activeIssues().isEmpty {
             stopPosture(status: postureIdleStatus)
         }
+    }
+
+    /// Monitoring is on but macOS has no answer for this build (a reinstall
+    /// with a new signature resets it): ask once per launch instead of
+    /// staying silently off.
+    private func askForCameraIfNeeded() {
+        guard !Self.cameraBlocked, !askedCameraThisLaunch, settings.cameraMonitoringEnabled, calibration != nil else { return }
+        cameraAuthorization = CameraService.authorization()
+        guard cameraAuthorization == .notDetermined else { return }
+        askedCameraThisLaunch = true
+        requestCameraAccess { _ in self.lastCameraAttempt = .distantPast }
     }
 
     private var postureIdleStatus: TrackingStatus {

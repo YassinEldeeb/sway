@@ -32,7 +32,11 @@ if [ ! -f Resources/AppIcon.icns ]; then
 fi
 cp Resources/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
-codesign --force --sign - --options runtime --entitlements Resources/Sway.entitlements "$APP"
+# An ad-hoc signature's default requirement is its cdhash, so every rebuild
+# looked like a new app to macOS and lost the camera permission. Naming the
+# bundle id as the requirement keeps the permission across rebuilds.
+codesign --force --sign - --options runtime --entitlements Resources/Sway.entitlements \
+  -r='designated => identifier "dev.sway.coach"' "$APP"
 codesign --verify --strict "$APP"
 echo "Built $APP ($(du -sh "$APP" | cut -f1))"
 

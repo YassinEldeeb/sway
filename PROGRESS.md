@@ -169,8 +169,11 @@ threshold (calculated, not re-run).
   face position, which also changes if you slouch down in the chair.
 - Uneven-shoulder detection needs both shoulders in frame, which most laptop
   cameras don't show.
-- Ad-hoc signing: macOS may ask for camera permission again after each
-  rebuild (the signature changes). A Developer ID signature fixes this.
+- Ad-hoc signing: `build-app.sh` now signs with the bundle id as the
+  designated requirement, so a rebuild should keep the camera permission
+  (not yet confirmed across a rebuild). If macOS still resets it, Sway asks
+  again at launch instead of staying silently off. A Developer ID signature
+  is the proper fix for distribution.
 - Tests run through a small custom runner because the Command Line Tools on
   this Mac ship no XCTest. They port directly to XCTest if wanted.
 
