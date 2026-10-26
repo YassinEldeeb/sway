@@ -243,7 +243,9 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
                 statuses.append(ReminderStatus(reminder: c, state: .sent))
             }
         }
-        return InterventionDecision(deliver: chosen, statuses: statuses, hold: nil, expired: expired)
+        // A new notification of the same kind replaces the stale one on
+        // screen; clearing that kind as well could remove the new banner.
+        return InterventionDecision(deliver: chosen, statuses: statuses, hold: nil, expired: expired.filter { $0 != chosen?.kind })
     }
 
     /// `decide`, then remember holds (for the settling time) and forget

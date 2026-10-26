@@ -106,6 +106,7 @@ private struct BreakSettings: View {
 private struct NotificationSettings: View {
     @EnvironmentObject var model: AppModel
     @ObservedObject private var notifications = AppModel.shared.notifications
+    @State private var testResult: String?
 
     var body: some View {
         Form {
@@ -122,6 +123,18 @@ private struct NotificationSettings: View {
                             NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.notifications")!)
                         }
                     }
+                }
+                HStack {
+                    Button("Send a test notification") {
+                        testResult = nil
+                        notifications.postTest { error in
+                            testResult = error.map { "macOS refused it: \($0)" } ?? "Sent. If no banner appeared, a Focus mode is probably on, or Sway's style in System Settings → Notifications is set to None."
+                        }
+                    }
+                    .disabled(!notifications.isAvailable)
+                }
+                if let testResult {
+                    Text(testResult).font(.caption).foregroundStyle(.secondary)
                 }
                 if !notifications.isAvailable {
                     Text("Running unbundled: reminders appear in the menu bar only. Build Sway.app for system notifications.")

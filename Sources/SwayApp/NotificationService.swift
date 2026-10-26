@@ -136,10 +136,31 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         default: group = "posture"
         }
         content.categoryIdentifier = (canSnooze || group == "review") ? group : group + ".final"
-        if r.kind == .longSession { content.interruptionLevel = .active } else { content.interruptionLevel = .passive }
-        // Replace any earlier notification of the same kind instead of stacking.
-        center.removeDeliveredNotifications(withIdentifiers: [r.kind.rawValue])
-        center.add(UNNotificationRequest(identifier: r.kind.rawValue, content: content, trigger: nil))
+        // Every reminder shows as a banner: a passive notification only
+        // goes to Notification Centre, so nobody sees it in time.
+        content.interruptionLevel = .active
+        // The same identifier replaces any earlier notification of this kind
+        // instead of stacking. (Removing it first could race the new one.)
+        center.add(UNNotificationRequest(identifier: r.kind.rawValue, content: content, trigger: nil)) { error in
+            guard let error else { return }
+            Task { @MainActor in self.onPostFailed?(r.kind, error.localizedDescription) }
+        }
+    }
+
+    /// macOS refused a notification: the caller records why.
+    var onPostFailed: ((ReminderKind, String) -> Void)?
+
+    /// Posts a test notification from Settings, so anyone can see that
+    /// banners reach them (and notice a Focus mode that silences them).
+    func postTest(_ done: @escaping (String?) -> Void) {
+        guard let center else { done("Sway isn't running as an app, so macOS can't show its notifications."); return }
+        let content = UNMutableNotificationContent()
+        content.title = "Sway test notification"
+        content.body = "Reminders will look like this. If no banner appeared, check Focus in Control Centre."
+        content.interruptionLevel = .active
+        center.add(UNNotificationRequest(identifier: "sway.test", content: content, trigger: nil)) { error in
+            Task { @MainActor in done(error?.localizedDescription) }
+        }
     }
 
     func clear(_ kind: ReminderKind) {

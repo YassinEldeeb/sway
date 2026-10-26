@@ -142,6 +142,10 @@ final class AppModel: ObservableObject {
         camera.onObservation = { [weak self] o in self?.observe(o) }
         camera.onStats = { [weak self] s in self?.latestVisionStats = s }
         power.onChange = { [weak self] reason, active in self?.powerChanged(reason, active: active) }
+        notifications.onPostFailed = { [weak self] kind, why in
+            guard let self else { return }
+            self.runtime.decisionLog.note("\(kind.title): macOS didn't show the notification (\(why))", kind: kind, at: self.now)
+        }
         notifications.onTap = { [weak self] tap, instance, kind in
             self?.handleNotification(tap, instance: instance, kind: kind)
         }

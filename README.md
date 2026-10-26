@@ -10,22 +10,124 @@ diagnose anything, and camera estimates are relative to your own calibration,
 not measurements of your spine. For persistent, severe or worsening pain, see
 a qualified clinician.
 
-## Requirements
+## Install and set up
 
-- macOS 14 Sonoma or later. Built and tested here on macOS 27 (Apple Silicon).
-- Swift 5.10+: the Xcode Command Line Tools are enough.
+Sway is built from source on your own Mac. It takes about five minutes.
 
-## Build and run
+### 1. What you need
 
-Build, copy to `/Applications` and start it (replaces a running copy):
+- A Mac on macOS 14 Sonoma or later (Apple Silicon or Intel). It was built and
+  tested on macOS 27 on Apple Silicon.
+- Apple's Command Line Tools (Swift 5.10 or later). Check with
+  `swift --version`; if it isn't found, install them:
+
+  ```bash
+  xcode-select --install
+  ```
+
+  Full Xcode works too, but isn't needed.
+
+### 2. Build and install
 
 ```bash
+git clone https://github.com/YassinEldeeb/sway.git
+cd sway
 scripts/build-app.sh --install
 ```
 
-`scripts/build-app.sh` alone builds `build/Sway.app` (release, ad-hoc signed,
-hardened runtime). Install to `/Applications` before enabling launch at
-login.
+This builds `Sway.app`, copies it to `/Applications` and starts it. Running it
+again later updates Sway in place: it quits the running copy and starts the
+new one, and keeps your data, calibration and permissions.
+
+Sway lives in the **menu bar** (a small figure icon near the clock), not in the
+Dock. On first launch a short welcome window opens.
+
+> If the build fails because the Xcode license hasn't been accepted, run
+> `sudo xcodebuild -license` once, or ignore it: the script already builds
+> with the Command Line Tools.
+
+### 3. Allow notifications (required for reminders)
+
+Without this, reminders only appear inside the menu bar popover.
+
+1. In the welcome window, click **Allow notifications**, then **Allow** in the
+   macOS prompt. (Later: menu bar icon → **Allow**, or Sway's Settings →
+   Notifications → **Allow…**.)
+2. Open **System Settings → Notifications → Sway** and check that:
+   - **Allow notifications** is on;
+   - the alert style is **Banners** (or **Alerts**), not **None**;
+   - **Show in Notification Centre** is on.
+3. **Focus / Do Not Disturb** silences banners from every app, Sway included.
+   If you work with a Focus on, add Sway under **System Settings → Focus →
+   <your Focus> → Allowed Notifications → Apps**.
+4. Test it: Sway's **Settings → Notifications → Send a test notification**.
+   A banner titled "Sway test notification" should appear within a second.
+
+From Terminal you can also print exactly what macOS allows for Sway and post a
+test notification:
+
+```bash
+/Applications/Sway.app/Contents/MacOS/Sway --notification-probe
+```
+
+It prints the permission, alert style and whether macOS accepted and kept the
+test notification. If it says "posted: yes" but you saw no banner, a Focus
+mode is on.
+
+### 4. Optional: posture monitoring with the camera
+
+Sway works without a camera: break reminders need no permissions at all.
+To add posture hints:
+
+1. Menu bar icon → **Calibrate**, or Settings → Posture → turn on **Posture
+   monitoring with the camera**.
+2. Click **OK** in the macOS camera prompt.
+3. Sit comfortably facing your screen and follow the calibration steps.
+
+Camera frames are analysed in memory and discarded; nothing is recorded or
+uploaded. If you denied the prompt, allow Sway in **System Settings →
+Privacy & Security → Camera**, or reset the answer and try again:
+
+```bash
+tccutil reset Camera dev.sway.coach
+```
+
+### 5. Optional: start at login
+
+Sway's **Settings → General → Launch at login**. It needs Sway to be in
+`/Applications` (step 2 does that). You'll then see Sway under **System
+Settings → General → Login Items**.
+
+### What Sway does not need
+
+No Accessibility, Input Monitoring, Screen Recording, microphone, network or
+account access. Activity comes from the system idle timer (seconds since the
+last input), never from keystrokes, apps or windows. The "hold during calls"
+option only checks whether another app is using the microphone or camera.
+
+### Troubleshooting
+
+| Problem | What to do |
+| --- | --- |
+| No banners appear | Do step 3 again: permission on, style **Banners**, Focus off or allowing Sway. Run the `--notification-probe` command above. Sway's Settings → Diagnostics lists every decision, including "held" and why. |
+| The menu says reminders are held | It says why: paused, quiet hours, a call, a full-screen app, or macOS not showing Sway's notifications. |
+| `open` fails with error -600 | The old copy was still quitting. Run `scripts/build-app.sh --install` again: it waits and starts Sway itself. |
+| Camera stays off | Allow Sway under Privacy & Security → Camera, then recalibrate from the menu bar. |
+| Start again from scratch | Settings → Privacy → **Delete all Sway data…**, then recalibrate. |
+
+### Uninstall
+
+Quit Sway from its menu, then:
+
+```bash
+rm -rf /Applications/Sway.app ~/Library/Application\ Support/Sway
+tccutil reset All dev.sway.coach
+```
+
+If you turned on launch at login, turn it off first in Settings, or remove
+Sway from System Settings → General → Login Items.
+
+## Development
 
 Run the tests:
 
@@ -37,10 +139,8 @@ To run only some tests, pass part of their name, e.g.
 `.build/debug/sway-tests posture`. A name that matches nothing is reported
 as an error, not as a passing run.
 
-If `xcodebuild` reports that the Xcode license hasn't been accepted, either
-run `sudo xcodebuild -license` once, or prefix commands with
-`DEVELOPER_DIR=/Library/Developer/CommandLineTools` (`build-app.sh` does this
-for you).
+`scripts/build-app.sh` without `--install` only builds `build/Sway.app`
+(release, ad-hoc signed, hardened runtime).
 
 ### Xcode
 
@@ -50,14 +150,14 @@ for you).
 - **`Xcode/Sway.xcodeproj`**: an app target with the real Info.plist,
   entitlements and signing settings, linking `SwayCore` from the local
   package. It's generated by `scripts/generate-xcodeproj.py`; re-run that
-  after adding app source files. *This project file has not been built on
-  this machine (the Xcode license wasn't accepted), so treat it as
-  unverified.* `build-app.sh` is the verified path.
+  after adding app source files. *It has not been built with Xcode yet, so
+  treat it as unverified.* `build-app.sh` is the verified path.
 
 ### Developer flags
 
 | Command | What it does |
 | --- | --- |
+| `Sway --notification-probe` | Prints macOS's notification settings for Sway and posts a test notification. |
 | `Sway --benchmark` | Measures Vision, posture-engine and scheduling cost. |
 | `SWAY_DATA_DIR=/tmp/demo Sway --seed-demo-data` | Writes two weeks of demo data to that folder. |
 | `SWAY_DATA_DIR=/tmp/demo SWAY_NO_CAMERA=1 Sway --snapshots /tmp/shots` | Renders every screen to PNG in light and dark. |

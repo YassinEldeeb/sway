@@ -240,6 +240,16 @@ let notificationTests: [TestCase] = [
         let other = reminder(.longBreak, "lb", at: t0, priority: 80)
         expectEqual(e.blocker(other, now: t0 + 9 * 60, settings: s), .hourlyBudget(until: t0 + 3600))
     },
+    TestCase(name: "a repeat of the long-session reminder replaces the banner instead of clearing it") {
+        // Live log: each 30-min repeat was "Sent" and "removed" in the same
+        // tick, and the removal could take the new banner with it.
+        var coach = Coach()
+        coach.work(3 * 3600)
+        expect(coach.count(.longSession) >= 2, "the 2 h reminder repeats every 30 min")
+        for (at, r) in coach.posted {
+            expect(!coach.removed.contains { $0.0 == at && $0.1 == r.kind }, "\(r.kind) cleared in the tick it was posted")
+        }
+    },
     TestCase(name: "a posture reminder yields to a break that just fell due or is about to") {
         let s = CoachSettings()
         let a = posture(.headDown, since: t0)
