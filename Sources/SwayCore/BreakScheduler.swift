@@ -12,8 +12,10 @@ public struct DueReminder: Equatable, Sendable {
     public var body: String
     /// Higher wins when several are due at once.
     public var priority: Int
+    /// For a menu-only reminder: why it isn't a notification (yet).
+    public var note: String?
 
-    public init(kind: ReminderKind, dueAt: Date, instanceID: String, level: InterventionLevel, title: String, body: String, priority: Int) {
+    public init(kind: ReminderKind, dueAt: Date, instanceID: String, level: InterventionLevel, title: String, body: String, priority: Int, note: String? = nil) {
         self.kind = kind
         self.dueAt = dueAt
         self.instanceID = instanceID
@@ -21,6 +23,7 @@ public struct DueReminder: Equatable, Sendable {
         self.title = title
         self.body = body
         self.priority = priority
+        self.note = note
     }
 }
 
@@ -57,7 +60,7 @@ public enum BreakScheduler {
             out.append(DueReminder(
                 kind: .longSession, dueAt: dueAt,
                 instanceID: "longSession@\(stamp(longRef))#\(bucket)",
-                level: .actionable,
+                level: .notify,
                 title: "You've been at it for \(Format.duration(sinceLong))",
                 body: "That's an unusually long stretch without a real break. A few minutes away from the desk — a short walk, water, daylight — is a good reset.",
                 priority: 100))
@@ -65,7 +68,7 @@ public enum BreakScheduler {
             out.append(DueReminder(
                 kind: .longBreak, dueAt: longDueAt,
                 instanceID: "longBreak@\(stamp(longRef))",
-                level: .actionable,
+                level: .notify,
                 title: "Time for a longer break",
                 body: "You've been working continuously for \(Format.duration(sinceLong)). A short walk could help.",
                 priority: 80))
@@ -78,7 +81,7 @@ public enum BreakScheduler {
             out.append(DueReminder(
                 kind: .microBreak, dueAt: microDueAt,
                 instanceID: "micro@\(stamp(moveRef))",
-                level: .actionable,
+                level: .notify,
                 title: "Quick movement break",
                 body: "\(Format.duration(now.timeIntervalSince(moveRef))) since you last moved away. Stand up, roll your shoulders, or try a 1-minute routine.",
                 priority: 50))
@@ -92,7 +95,7 @@ public enum BreakScheduler {
                 out.append(DueReminder(
                     kind: .eyeRest, dueAt: eyeDueAt,
                     instanceID: "eye@\(stamp(eyeRef))",
-                    level: .gentle,
+                    level: .notify,
                     title: "Rest your eyes",
                     body: "Look at something about 6 metres (20 feet) away for 20 seconds, and blink a few times.",
                     priority: 20))

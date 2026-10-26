@@ -12,6 +12,9 @@ public enum TrackingStatus: Equatable, Sendable {
     case lowConfidence
     /// Turned well away from the calibrated direction (e.g. another monitor).
     case lookingAway
+    /// For ten minutes the face has sat far from where it was calibrated:
+    /// the screen, camera or chair probably moved. Warnings are paused.
+    case calibrationSuspect
     case tracking
 
     public var label: String {
@@ -22,6 +25,7 @@ public enum TrackingStatus: Equatable, Sendable {
         case .searching: return "Looking for you"
         case .lowConfidence: return "Low confidence"
         case .lookingAway: return "Looking away"
+        case .calibrationSuspect: return "Calibration may be out of date"
         case .tracking: return "Tracking"
         }
     }
@@ -59,6 +63,15 @@ public struct PostureMetrics: Equatable, Sendable {
 public struct ActiveIssue: Equatable, Sendable {
     public var issue: PostureIssue
     public var since: Date
+    /// The user has already moved back under the exit line; the episode
+    /// ends shortly unless the deviation returns.
+    public var easing: Bool
+
+    public init(issue: PostureIssue, since: Date, easing: Bool = false) {
+        self.issue = issue
+        self.since = since
+        self.easing = easing
+    }
 }
 
 /// A deviation that is over its threshold but hasn't lasted long enough to
@@ -83,6 +96,9 @@ public struct PostureEngine: Sendable {
     private var motion = MotionWindow()
     private var recent: [(t: Date, valid: Bool)] = []
     private var lastFaceAt: Date?
+    public private(set) var frequency = FrequentPatternDetector()
+    public private(set) var health = CalibrationHealthMonitor()
+    private var frequentSettings = FrequentPatternSettings()
 
     /// Share of samples in the last two minutes that were usable. Below this,
     /// Sway shows "low confidence" and raises no posture prompts.
@@ -97,7 +113,7 @@ public struct PostureEngine: Sendable {
         let changed = calibration != self.calibration || cameraID != self.cameraID
         self.calibration = calibration
         self.cameraID = cameraID
-        if changed { resetSignals() }
+        if changed { resetSignals(includingHistory: true) }
         rebuildDetectors(settings: settings, adjustments: adjustments)
         status = baseStatus() ?? status
     }
@@ -130,12 +146,18 @@ public struct PostureEngine: Sendable {
         return nil
     }
 
-    private mutating func resetSignals() {
+    /// A camera stop keeps the rolling history (patterns across a short
+    /// interruption, a moved camera); a new calibration clears it.
+    private mutating func resetSignals(includingHistory: Bool = false) {
         smoothers = [:]
         motion.clear()
         recent = []
         lastFaceAt = nil
         metrics = PostureMetrics()
+        if includingHistory {
+            frequency.reset()
+            health.reset()
+        }
     }
 
     public var reliability: Double {
@@ -152,6 +174,7 @@ public struct PostureEngine: Sendable {
             for e in d.expire(lastSeen: d.lastKnown) { events += map(e, issue) }
             detectors[issue] = d
         }
+        frequency.stop(settings: frequentSettings)
         resetSignals()
         status = baseStatus() ?? newStatus
         return events
@@ -173,6 +196,13 @@ public struct PostureEngine: Sendable {
         let plausible = hasFace && o.faceCount == 1 && o.faceConfidence >= settings.minFaceConfidence && sizeRatio > 0.5 && sizeRatio < 2.2
         let yawDelta = (o.yaw.flatMap { y in b.yaw.map { abs(y - $0) } }) ?? 0
         let facingScreen = yawDelta <= Self.maxYawDelta
+
+        if hasFace, o.faceCount == 1, o.faceConfidence >= settings.minFaceConfidence, let c = o.faceCenter {
+            health.update(off: CalibrationHealthMonitor.isOff(offset: abs(c.x - b.faceCenter.x), sizeRatio: sizeRatio), at: t)
+        } else {
+            health.update(off: nil, at: t)
+        }
+        frequentSettings = settings.frequentPatterns
 
         recent.append((t, plausible))
         recent.removeAll { t.timeIntervalSince($0.t) > 120 }
@@ -211,8 +241,9 @@ public struct PostureEngine: Sendable {
                 values[.shoulderAsymmetry] = .some(nil)
             }
         }
-        if !reliable {
-            // Not enough good data recently: treat everything as unknown.
+        if !reliable || health.isSuspect {
+            // Not enough good data recently, or the calibration no longer
+            // fits the setup: treat everything as unknown.
             values = [:]
         }
 
@@ -222,7 +253,7 @@ public struct PostureEngine: Sendable {
             motion.add(t: t, x: c.x / b.faceHeight, y: c.y / b.faceHeight, roll: o.roll ?? 0)
         }
         var staticValue: Double?
-        if plausible, reliable, motion.covers(0.8) {
+        if plausible, reliable, !health.isSuspect, motion.covers(0.8) {
             staticValue = motion.motion < settings.staticMotionThreshold ? 1 : 0
         }
 
@@ -232,6 +263,10 @@ public struct PostureEngine: Sendable {
             let v: Double? = !enabled ? nil : (issue == .staticPosture ? staticValue : (values[issue] ?? nil))
             for e in d.update(v, at: t) { events += map(e, issue) }
             detectors[issue] = d
+            if FrequentPatternDetector.issues.contains(issue) {
+                let over = v.map { issue == .staticPosture ? $0 >= 0.5 : $0 >= d.enter }
+                frequency.update(issue, over: over, at: t, settings: frequentSettings)
+            }
         }
 
         metrics = PostureMetrics(
@@ -241,6 +276,8 @@ public struct PostureEngine: Sendable {
 
         if !hasFace {
             status = (lastFaceAt.map { t.timeIntervalSince($0) < 10 } ?? false) ? status : .searching
+        } else if health.isSuspect {
+            status = .calibrationSuspect
         } else if !reliable || !plausible {
             status = .lowConfidence
         } else if !facingScreen {
@@ -256,7 +293,8 @@ public struct PostureEngine: Sendable {
     public func activeIssues() -> [ActiveIssue] {
         guard status == .tracking || status == .lookingAway else { return [] }
         return PostureIssue.allCases.compactMap { issue in
-            detectors[issue]?.activeSince.map { ActiveIssue(issue: issue, since: $0) }
+            guard let d = detectors[issue], let since = d.activeSince else { return nil }
+            return ActiveIssue(issue: issue, since: since, easing: d.isEasing)
         }
     }
 
@@ -268,6 +306,18 @@ public struct PostureEngine: Sendable {
             guard let d = detectors[issue], let since = d.pendingSince else { return nil }
             return BuildingIssue(issue: issue, since: since, needed: d.minDuration)
         }
+    }
+
+    /// Issues that came up often in short bouts over the rolling window.
+    /// Same reliability gate as the other estimates (unknown time never
+    /// counts), and only for issues that are enabled and measurable.
+    public func frequentFlags(now: Date, settings: CoachSettings) -> [PostureIssue: FrequentFlag] {
+        guard let cal = calibration, status != .calibrationSuspect else { return [:] }
+        var out: [PostureIssue: FrequentFlag] = [:]
+        for issue in FrequentPatternDetector.issues where settings.thresholds(for: issue).enabled && (cal.report.measurable[issue] ?? false) {
+            if let f = frequency.assess(issue, now: now, settings: settings.frequentPatterns) { out[issue] = f }
+        }
+        return out
     }
 
     private mutating func smooth(_ issue: PostureIssue, _ x: Double, _ t: Date) -> Double {

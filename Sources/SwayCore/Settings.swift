@@ -61,6 +61,11 @@ public struct CoachSettings: Codable, Equatable, Sendable {
     /// A sustained issue stays passive (menu bar only) this long before it
     /// may become a notification.
     public var postureNotifyAfter: TimeInterval = 3 * 60
+    /// Noticing an issue that keeps coming back in short bouts. It leads to
+    /// a workstation suggestion, never to posture reminders.
+    public var frequentPatterns = FrequentPatternSettings()
+    /// Show the daily comfort check-in on the dashboard.
+    public var comfortCheckInEnabled = true
 
     // MARK: App
     public var showDockIcon = false
@@ -114,6 +119,7 @@ public struct CoachSettings: Codable, Equatable, Sendable {
         }
         s.staticMinDuration = s.staticMinDuration.clamped(10 * 60, 180 * 60)
         s.postureNotifyAfter = s.postureNotifyAfter.clamped(0, 30 * 60)
+        s.frequentPatterns = s.frequentPatterns.sanitized()
         return s
     }
 
@@ -169,6 +175,8 @@ extension CoachSettings {
         read("staticMinDuration", &staticMinDuration)
         read("staticEnabled", &staticEnabled)
         read("postureNotifyAfter", &postureNotifyAfter)
+        read("frequentPatterns", &frequentPatterns)
+        read("comfortCheckInEnabled", &comfortCheckInEnabled)
         read("showDockIcon", &showDockIcon)
         read("showTimerInMenuBar", &showTimerInMenuBar)
         read("retentionDays", &retentionDays)

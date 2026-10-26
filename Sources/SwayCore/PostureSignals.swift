@@ -131,6 +131,10 @@ public struct SustainedDetector: Codable, Equatable, Sendable {
 
     public var activeSince: Date? { if case .active(let s, _, _) = phase { return s } else { return nil } }
 
+    /// Counted, and the value has been under the exit line since; it ends
+    /// unless the deviation comes back.
+    public var isEasing: Bool { isActive && belowSince != nil }
+
     /// Start of a deviation that is over `enter` but hasn't lasted
     /// `minDuration` yet.
     public var pendingSince: Date? { if case .pending(let s, _) = phase { return s } else { return nil } }

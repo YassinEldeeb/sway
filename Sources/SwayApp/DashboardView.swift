@@ -67,7 +67,7 @@ private struct TodayView: View {
             }
             HStack(alignment: .top, spacing: 12) {
                 PostureBreakdown(record: r)
-                ComfortCheckInView()
+                if model.settings.comfortCheckInEnabled { ComfortCheckInView() }
             }
             if !r.prompts.isEmpty {
                 PromptsBreakdown(record: r)
@@ -228,43 +228,52 @@ private struct PromptsBreakdown: View {
 
 struct ComfortCheckInView: View {
     @EnvironmentObject var model: AppModel
-    @State private var neck = 0.0
-    @State private var back = 0.0
-    @State private var eyes = 0.0
+    /// nil = not answered (the area doesn't apply or the user skipped it).
+    @State private var values: [ComfortCheckIn.Area: Double] = [:]
     @State private var note = ""
     @State private var editing = false
 
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: 10) {
-                SectionLabel("Comfort check-in")
+                HStack {
+                    SectionLabel("Comfort check-in")
+                    Spacer()
+                    Text("Optional").font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                }
                 if let c = model.today.comfort, !editing {
-                    HStack(spacing: 18) {
-                        score("Neck", c.neck)
-                        score("Back", c.back)
-                        score("Eyes", c.eyes)
+                    HStack(spacing: 16) {
+                        ForEach(ComfortCheckIn.Area.allCases, id: \.self) { area in
+                            score(area.title, c[area])
+                        }
+                        if c.back != nil, c.upperBack == nil, c.lowerBack == nil { score("Back", c.back) }
                     }
                     if let n = c.note { Text(n).font(.system(size: 12)).foregroundStyle(.secondary) }
                     Button("Update") {
-                        neck = Double(c.neck); back = Double(c.back); eyes = Double(c.eyes); note = c.note ?? ""
+                        values = Dictionary(uniqueKeysWithValues: ComfortCheckIn.Area.allCases.compactMap { a in c[a].map { (a, Double($0)) } })
+                        note = c.note ?? ""
                         editing = true
                     }
                     .buttonStyle(PillButtonStyle())
                 } else {
-                    Text("How uncomfortable is each area right now? 0 = none, 10 = worst imaginable.")
+                    Text("How uncomfortable is each area right now? 0 = none, 10 = worst imaginable. Answer only what applies.")
                         .font(.system(size: 11)).foregroundStyle(.secondary)
-                    slider("Neck discomfort", $neck)
-                    slider("Back discomfort", $back)
-                    slider("Eye fatigue", $eyes)
+                    ForEach(ComfortCheckIn.Area.allCases, id: \.self) { area in row(area) }
                     TextField("Note (optional)", text: $note)
                         .textFieldStyle(.roundedBorder)
                         .font(.system(size: 12))
-                    Button("Save") {
-                        model.saveComfort(neck: Int(neck), back: Int(back), eyes: Int(eyes), note: note)
-                        editing = false
+                    HStack {
+                        Button("Save") {
+                            let v = { (a: ComfortCheckIn.Area) in values[a].map { Int($0) } }
+                            model.saveComfort(ComfortCheckIn(neck: v(.neck), upperBack: v(.upperBack), lowerBack: v(.lowerBack), eyes: v(.eyes),
+                                                             note: note.isEmpty ? nil : note, at: Date()))
+                            editing = false
+                        }
+                        .buttonStyle(PillButtonStyle(prominent: true))
+                        .disabled(values.isEmpty && note.isEmpty)
+                        if editing { Button("Cancel") { editing = false }.buttonStyle(PillButtonStyle()) }
                     }
-                    .buttonStyle(PillButtonStyle(prominent: true))
-                    if max(neck, back) >= 7 {
+                    if values.values.contains(where: { $0 >= 7 }) {
                         Text("For persistent, severe or worsening pain, please see a qualified clinician — Sway can't assess it.")
                             .font(.system(size: 11)).foregroundStyle(Theme.warm)
                     }
@@ -273,21 +282,28 @@ struct ComfortCheckInView: View {
         }
     }
 
-    private func score(_ label: String, _ v: Int) -> some View {
+    private func score(_ label: String, _ v: Int?) -> some View {
         VStack(alignment: .leading) {
             Text(label).font(.system(size: 11)).foregroundStyle(.secondary)
-            Text("\(v)/10").font(.system(size: 18, weight: .semibold, design: .rounded))
+            Text(v.map { "\($0)/10" } ?? "—").font(.system(size: 18, weight: .semibold, design: .rounded))
         }
     }
 
-    private func slider(_ label: String, _ v: Binding<Double>) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
+    private func row(_ area: ComfortCheckIn.Area) -> some View {
+        let answered = values[area] != nil
+        return VStack(alignment: .leading, spacing: 2) {
             HStack {
-                Text(label).font(.system(size: 12))
+                Text(area.title).font(.system(size: 12))
                 Spacer()
-                Text("\(Int(v.wrappedValue))").font(.system(size: 12, weight: .medium)).monospacedDigit()
+                if answered {
+                    Text("\(Int(values[area] ?? 0))").font(.system(size: 12, weight: .medium)).monospacedDigit()
+                    Button("Clear") { values[area] = nil }.buttonStyle(.link).font(.system(size: 11))
+                } else {
+                    Text("Not answered").font(.system(size: 11)).foregroundStyle(.tertiary)
+                }
             }
-            Slider(value: v, in: 0...10, step: 1).tint(Theme.accent)
+            Slider(value: Binding(get: { values[area] ?? 0 }, set: { values[area] = $0 }), in: 0...10, step: 1)
+                .tint(answered ? Theme.accent : Color.secondary.opacity(0.4))
         }
     }
 }
@@ -339,20 +355,27 @@ private struct TrendsView: View {
                     .chartLegend(position: .bottom)
                 }
             }
-            chartCard("Comfort check-ins (0–10, lower is better)") {
+            chartCard("Comfort check-ins (0–10, lower is better) · dashed lines mark workstation changes") {
                 let points = history.compactMap { d in d.comfort.map { (d.day, $0) } }
+                let changes = history.filter { d in d.log.contains { Self.isWorkstationChange($0.text) } }.map(\.day)
                 if points.isEmpty {
                     Text("No check-ins yet. Add one from the Today tab — a few a week is enough to see whether things change.")
                         .font(.system(size: 12)).foregroundStyle(.secondary).frame(maxWidth: .infinity, minHeight: 120)
                 } else {
                     Chart {
-                        ForEach(points, id: \.0) { day, c in
-                            LineMark(x: .value("Day", date(day), unit: .day), y: .value("Score", c.neck), series: .value("Area", "Neck")).foregroundStyle(by: .value("Area", "Neck")).symbol(.circle)
-                            LineMark(x: .value("Day", date(day), unit: .day), y: .value("Score", c.back), series: .value("Area", "Back")).foregroundStyle(by: .value("Area", "Back")).symbol(.circle)
-                            LineMark(x: .value("Day", date(day), unit: .day), y: .value("Score", c.eyes), series: .value("Area", "Eyes")).foregroundStyle(by: .value("Area", "Eyes")).symbol(.circle)
+                        ForEach(changes, id: \.self) { day in
+                            RuleMark(x: .value("Day", date(day), unit: .day))
+                                .foregroundStyle(Color.secondary.opacity(0.5))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        }
+                        ForEach(Self.comfortSeries, id: \.0) { name, value in
+                            ForEach(points.filter { value($0.1) != nil }, id: \.0) { day, c in
+                                LineMark(x: .value("Day", date(day), unit: .day), y: .value("Score", value(c) ?? 0), series: .value("Area", name))
+                                    .foregroundStyle(by: .value("Area", name)).symbol(.circle)
+                            }
                         }
                     }
-                    .chartForegroundStyleScale(domain: ["Neck", "Back", "Eyes"], range: [Theme.warm, Theme.accent, Color.blue.opacity(0.7)])
+                    .chartForegroundStyleScale(domain: Self.comfortSeries.map(\.0), range: [Theme.warm, Theme.accent, Color.purple.opacity(0.65), Color.blue.opacity(0.7), Color.gray.opacity(0.6)])
                     .chartXScale(domain: date(history.first?.day ?? "")...date(history.last?.day ?? ""))
                     .chartXAxis { dayAxis }
                     .chartYScale(domain: 0...10)
@@ -362,6 +385,15 @@ private struct TrendsView: View {
             Text("Trends show what Sway observed and what you reported. They can suggest whether changes help you, but they can't show cause and effect.")
                 .font(.system(size: 11)).foregroundStyle(.tertiary)
         }
+    }
+
+    /// Areas over time; "Back" holds check-ins from before the split.
+    static let comfortSeries: [(String, (ComfortCheckIn) -> Int?)] = [
+        ("Neck", { $0.neck }), ("Upper back", { $0.upperBack }), ("Lower back", { $0.lowerBack }), ("Eye fatigue", { $0.eyes }), ("Back", { $0.back }),
+    ]
+
+    static func isWorkstationChange(_ text: String) -> Bool {
+        text.hasPrefix("Workstation:") || text.hasPrefix("Calibrated")
     }
 
     private func date(_ day: String) -> Date {
@@ -451,11 +483,16 @@ private struct InsightsView: View {
                             .font(.system(size: 12)).foregroundStyle(.secondary)
                     } else {
                         let half = checks.count / 2
-                        let early = checks.prefix(half), late = checks.suffix(checks.count - half)
-                        let avg = { (xs: ArraySlice<ComfortCheckIn>, k: KeyPath<ComfortCheckIn, Int>) -> Double in Double(xs.map { $0[keyPath: k] }.reduce(0, +)) / Double(max(1, xs.count)) }
-                        Text(String(format: "Neck: %.1f → %.1f · Back: %.1f → %.1f · Eyes: %.1f → %.1f (earlier vs. recent check-ins)",
-                                    avg(early, \.neck), avg(late, \.neck), avg(early, \.back), avg(late, \.back), avg(early, \.eyes), avg(late, \.eyes)))
-                            .font(.system(size: 12))
+                        let early = Array(checks.prefix(half)), late = Array(checks.suffix(checks.count - half))
+                        ForEach(ComfortCheckIn.Area.allCases, id: \.self) { area in
+                            let e = early.compactMap { $0[area] }, l = late.compactMap { $0[area] }
+                            if !e.isEmpty, !l.isEmpty {
+                                Text(String(format: "%@: %.1f → %.1f", area.title, Double(e.reduce(0, +)) / Double(e.count), Double(l.reduce(0, +)) / Double(l.count)))
+                                    .font(.system(size: 12)).monospacedDigit()
+                            }
+                        }
+                        Text("Earlier vs. recent check-ins in this period, next to the active time, breaks and workstation changes in Trends.")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
                         Text("Many things affect comfort; use this as a prompt for reflection, not proof.").font(.system(size: 11)).foregroundStyle(.tertiary)
                     }
                 }

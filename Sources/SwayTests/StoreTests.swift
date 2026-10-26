@@ -77,12 +77,13 @@ let storeTests: [TestCase] = [
         for offset in [0, 10, 100, 200] {
             var r = DailyRecord(day: DayKey.key(t0 - Double(offset) * 86_400))
             r.activeSeconds = Double(offset)
-            r.comfort = ComfortCheckIn(neck: 12, back: -1, eyes: 4, at: t0)
+            r.comfort = ComfortCheckIn(neck: 12, lowerBack: -1, eyes: 4, at: t0)
             try store.save(r)
         }
         let today = store.loadDay(DayKey.key(t0))
         expectEqual(today?.comfort?.neck, 10, "clamped to 0-10")
-        expectEqual(today?.comfort?.back, 0)
+        expectEqual(today?.comfort?.lowerBack, 0)
+        expectEqual(today?.comfort?.upperBack, nil, "unanswered stays unanswered")
         expectEqual(store.storedDayCount(), 4)
         let removed = store.prune(retentionDays: 90, now: t0)
         expectEqual(removed, 2)

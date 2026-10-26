@@ -79,7 +79,7 @@ extension TrackingStatus {
         switch self {
         case .tracking: return .green
         case .lookingAway, .searching: return .yellow
-        case .lowConfidence, .needsRecalibration, .notCalibrated: return Theme.warm
+        case .lowConfidence, .needsRecalibration, .notCalibrated, .calibrationSuspect: return Theme.warm
         case .off: return .secondary
         }
     }

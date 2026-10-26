@@ -18,10 +18,10 @@ struct Synth {
     }
 
     mutating func obs(lean: Double = 0, drop: Double = 0, roll: Double = 0, pitch: Double = 0, yaw: Double = 0,
-                      shoulderTilt: Double = 0, confidence: Double = 0.95, faces: Int = 1, jitter: Double = 0.004) -> PostureObservation {
+                      shoulderTilt: Double = 0, confidence: Double = 0.95, faces: Int = 1, jitter: Double = 0.004, dx: Double = 0) -> PostureObservation {
         let h = 0.25 * (1 + lean) + noise(jitter)
         let cy = 0.55 - drop * 0.25 + noise(jitter)
-        let cx = 0.5 + noise(jitter)
+        let cx = 0.5 + dx + noise(jitter)
         let lift = tan(shoulderTilt * .pi / 180) * 0.4
         let o = PostureObservation(
             timestamp: t, faceCount: faces, faceConfidence: confidence,

@@ -44,7 +44,7 @@ enum Snapshots {
                 r.prompts = [.microBreak: micro, .longBreak: long, .headDown: head]
                 r.routinesCompleted = Int.random(in: 1...5, using: &rng)
                 if offset % 2 == 0 {
-                    r.comfort = ComfortCheckIn(neck: max(1, 6 - (14 - offset) / 3), back: max(1, 4 - (14 - offset) / 5), eyes: Int.random(in: 2...5, using: &rng), at: day)
+                    r.comfort = ComfortCheckIn(neck: max(1, 6 - (14 - offset) / 3), upperBack: max(1, 4 - (14 - offset) / 5), lowerBack: offset % 4 == 0 ? 2 : nil, eyes: Int.random(in: 2...5, using: &rng), at: day)
                 }
             }
             if offset == 0 {

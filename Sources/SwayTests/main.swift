@@ -6,5 +6,7 @@ let code = runAll([
     ("Posture", postureTests),
     ("Persistence & content", storeTests),
     ("Review regressions", regressionTests),
+    ("Notifications", notificationTests),
+    ("Saved-file compatibility", compatibilityTests),
 ])
 exit(code)

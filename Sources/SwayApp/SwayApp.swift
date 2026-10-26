@@ -19,6 +19,16 @@ struct SwayApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static let toolingFlags = ["--benchmark", "--seed-demo-data", "--snapshots", "--render-icon"]
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Set the notification delegate before launch finishes: when a click
+        // on a Sway notification launches the app, the click is delivered
+        // right after, and would be lost without a delegate.
+        guard !CommandLine.arguments.contains(where: Self.toolingFlags.contains) else { return }
+        AppModel.shared.notifications.setUp()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         let args = CommandLine.arguments
         if args.contains("--benchmark") {

@@ -119,26 +119,15 @@ struct MenuView: View {
                     Text(r.title).font(.system(size: 13, weight: .semibold))
                 }
                 Text(r.body).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                if r.kind.postureIssue != nil {
-                    Text("Experimental camera estimate").font(.system(size: 10)).foregroundStyle(.tertiary)
-                }
                 HStack(spacing: 6) {
-                    if r.kind == .workstationReview {
-                        Button("Check my setup") { model.respond(r, .accepted); WindowManager.shared.show(.setup) }
-                            .buttonStyle(PillButtonStyle(prominent: true))
-                    } else if r.kind == .eyeRest {
-                        Button("Rest eyes · 20 s") { model.respond(r, .accepted); WindowManager.shared.showRoutine(RoutineLibrary.routine("eyes-30")) }
-                            .buttonStyle(PillButtonStyle(prominent: true))
-                    } else {
-                        Button(r.kind.isBreak ? "1-min routine" : "Move · 1 min") {
-                            model.respond(r, .accepted)
-                            WindowManager.shared.showRoutine(RoutineLibrary.suggested(for: r.kind == .longBreak || r.kind == .longSession ? .microBreak : r.kind))
-                        }
+                    Button(primaryLabel(r)) { model.perform(r.kind.primaryAction, r) }
                         .buttonStyle(PillButtonStyle(prominent: true))
-                        if r.kind.isBreak {
-                            Button("3-min break") { model.respond(r, .accepted); model.startGuidedBreak() }
-                                .buttonStyle(PillButtonStyle())
-                        }
+                    if r.kind.isBreak, r.kind.primaryAction != .takeBreak {
+                        Button("3-min break") { model.perform(.takeBreak, r) }
+                            .buttonStyle(PillButtonStyle())
+                    } else if r.kind.isBreak {
+                        Button("1-min routine") { model.perform(.startRoutine, r) }
+                            .buttonStyle(PillButtonStyle())
                     }
                     Menu {
                         if model.canSnooze(r) {
@@ -148,7 +137,7 @@ struct MenuView: View {
                         Button("Dismiss") { model.respond(r, .dismissed) }
                         if r.kind.postureIssue != nil {
                             Divider()
-                            Button("Recalibrate posture…") { WindowManager.shared.show(.calibration) }
+                            Button("Recalibrate posture…") { model.perform(.recalibrate, r) }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -157,7 +146,26 @@ struct MenuView: View {
                     .menuIndicator(.hidden)
                     .fixedSize()
                 }
+                if let status = model.decision.statuses.first(where: { $0.reminder.instanceID == r.instanceID }), model.decision.hold == nil {
+                    Label(status.explanation, systemImage: status.state == .sent ? "bell" : "bell.slash")
+                        .font(.system(size: 10.5)).foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                if r.kind.postureIssue != nil {
+                    Text("Experimental camera estimate").font(.system(size: 10)).foregroundStyle(.tertiary)
+                }
             }
+        }
+    }
+
+    private func primaryLabel(_ r: DueReminder) -> String {
+        switch r.kind.primaryAction {
+        case .openSetup: return "Check my setup"
+        case .takeBreak: return "3-min break"
+        case .startRoutine:
+            if r.kind == .eyeRest { return "Rest eyes · 20 s" }
+            return r.kind.isBreak ? "1-min routine" : "Move · 1 min"
+        default: return "Open"
         }
     }
 

@@ -2,7 +2,7 @@ import Foundation
 import SwayCore
 
 func reminder(_ kind: ReminderKind, _ id: String, at: Date, priority: Int = 50) -> DueReminder {
-    DueReminder(kind: kind, dueAt: at, instanceID: id, level: .actionable, title: kind.title, body: "", priority: priority)
+    DueReminder(kind: kind, dueAt: at, instanceID: id, level: .notify, title: kind.title, body: "", priority: priority)
 }
 
 /// Runs the full loop (tracker → scheduler → policy) the way the app does,

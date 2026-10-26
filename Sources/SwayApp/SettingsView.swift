@@ -44,6 +44,7 @@ private struct GeneralSettings: View {
                 }
                 Toggle("Show the work timer in the menu bar", isOn: $model.settings.showTimerInMenuBar)
                 Toggle("Show a Dock icon", isOn: $model.settings.showDockIcon)
+                Toggle("Show the daily comfort check-in on the dashboard", isOn: $model.settings.comfortCheckInEnabled)
             }
             Section("Setup") {
                 Button("Workstation setup assistant…") { WindowManager.shared.show(.setup) }

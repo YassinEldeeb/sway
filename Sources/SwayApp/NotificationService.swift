@@ -3,6 +3,8 @@ import ServiceManagement
 import SwayCore
 import UserNotifications
 
+/// Notification button identifiers. The strings are unchanged from earlier
+/// versions so buttons on notifications already on screen keep working.
 enum NotificationAction: String {
     case startRoutine = "sway.routine"
     case takeBreak = "sway.break"
@@ -11,6 +13,18 @@ enum NotificationAction: String {
     case recalibrate = "sway.recalibrate"
     case eyeDone = "sway.eyeDone"
     case openSetup = "sway.setup"
+
+    var coachAction: CoachAction {
+        switch self {
+        case .startRoutine: return .startRoutine
+        case .takeBreak: return .takeBreak
+        case .snooze: return .snooze
+        case .unhelpful: return .notHelpful
+        case .recalibrate: return .recalibrate
+        case .eyeDone: return .eyeDone
+        case .openSetup: return .openSetup
+        }
+    }
 }
 
 /// Native notifications with one-click actions. Only works from the bundled
@@ -19,14 +33,18 @@ enum NotificationAction: String {
 final class NotificationService: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     @Published private(set) var authorization: UNAuthorizationStatus = .notDetermined
 
-    var onAction: ((NotificationAction?, PromptResponse?, _ instanceID: String, _ kind: ReminderKind) -> Void)?
+    var onTap: ((NotificationTap, _ instanceID: String, _ kind: ReminderKind) -> Void)?
+    private var isSetUp = false
 
     let isAvailable: Bool = Bundle.main.bundleURL.pathExtension == "app" && Bundle.main.bundleIdentifier != nil
 
     private var center: UNUserNotificationCenter? { isAvailable ? UNUserNotificationCenter.current() : nil }
 
+    /// Must run before launch finishes, so a click that launched Sway (it
+    /// was quit) is delivered to this delegate.
     func setUp() {
-        guard let center else { return }
+        guard let center, !isSetUp else { return }
+        isSetUp = true
         center.delegate = self
         let routine = UNNotificationAction(identifier: NotificationAction.startRoutine.rawValue, title: "Start 1-min routine")
         let takeBreak = UNNotificationAction(identifier: NotificationAction.takeBreak.rawValue, title: "Take a 3-min break")
@@ -104,23 +122,14 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         let instance = info["instance"] as? String ?? ""
         let kind = (info["kind"] as? String).flatMap(ReminderKind.init(rawValue:)) ?? .microBreak
         let id = response.actionIdentifier
+        let tap: NotificationTap?
+        switch id {
+        case UNNotificationDismissActionIdentifier: tap = .dismissed
+        case UNNotificationDefaultActionIdentifier: tap = .body
+        default: tap = NotificationAction(rawValue: id).map { .button($0.coachAction) }
+        }
         Task { @MainActor in
-            switch id {
-            case UNNotificationDismissActionIdentifier:
-                self.onAction?(nil, .dismissed, instance, kind)
-            case UNNotificationDefaultActionIdentifier:
-                self.onAction?(.startRoutine, .accepted, instance, kind)
-            default:
-                let action = NotificationAction(rawValue: id)
-                let response: PromptResponse?
-                switch action {
-                case .snooze: response = .snoozed
-                case .unhelpful: response = .unhelpful
-                case .startRoutine, .takeBreak, .eyeDone, .openSetup, .recalibrate: response = .accepted
-                case nil: response = nil
-                }
-                self.onAction?(action, response, instance, kind)
-            }
+            if let tap { self.onTap?(tap, instance, kind) }
             completionHandler()
         }
     }

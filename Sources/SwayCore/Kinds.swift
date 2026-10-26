@@ -94,14 +94,49 @@ public enum PromptResponse: String, Codable, CaseIterable, Sendable {
     case helpful      // explicitly said it helped
 }
 
-/// Intervention levels from the product spec.
+/// How strongly Sway speaks up. Three levels, each with a visible effect:
+/// the menu bar only, a notification, or (when an issue keeps recurring) a
+/// once-a-day workstation suggestion in place of repeated posture reminders.
 public enum InterventionLevel: Int, Codable, Comparable, Sendable {
-    case passive = 1       // menu-bar indication only
-    case gentle = 2        // a notification with one concrete suggestion
-    case actionable = 3    // a notification with one-click actions
-    case pattern = 4       // repeated pattern: suggest fixing the setup instead
+    case menu = 1      // shown in the menu bar popover only, never notified
+    case notify = 2    // a notification with one-click actions
+    case setup = 3     // recurring issue: suggest a workstation change instead
 
     public static func < (a: Self, b: Self) -> Bool { a.rawValue < b.rawValue }
+}
+
+/// What the user can do with a reminder, from a notification or the menu.
+public enum CoachAction: String, Codable, Sendable {
+    case startRoutine
+    case takeBreak
+    case snooze
+    case notHelpful
+    case recalibrate
+    case eyeDone
+    case openSetup
+}
+
+extension ReminderKind {
+    /// What clicking the reminder itself does: the most useful single step
+    /// for this kind of reminder.
+    public var primaryAction: CoachAction {
+        switch self {
+        case .workstationReview: return .openSetup
+        case .longBreak, .longSession: return .takeBreak
+        default: return .startRoutine
+        }
+    }
+
+    /// The workstation item most related to a recurring posture issue.
+    public static func setupItem(for issue: PostureIssue) -> String {
+        switch issue {
+        case .headDown: return "monitor-height"
+        case .forwardLean: return "viewing-distance"
+        case .lateralTilt: return "external-monitor"
+        case .shoulderAsymmetry: return "forearm-support"
+        case .staticPosture: return "variation"
+        }
+    }
 }
 
 /// Where a recommendation comes from, shown next to it in the UI.

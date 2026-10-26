@@ -86,7 +86,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var runtime: RuntimeState
     @Published private(set) var calibration: Calibration?
     @Published private(set) var posture = PostureEngine()
-    @Published private(set) var decision = InterventionDecision(deliver: nil, passive: [], hold: nil)
+    @Published private(set) var decision = InterventionDecision.empty
     @Published private(set) var cameraState: CameraState = .off
     @Published private(set) var visionStats = VisionStats()
     @Published private(set) var resourceSample: ResourceSample?
@@ -117,6 +117,7 @@ final class AppModel: ObservableObject {
     private var askedCameraThisLaunch = false
     private var lastCameraAccounting: Date?
     private var lastPrune = Date.distantPast
+    private var lastFrequentCheck = Date.distantPast
     private var currentDay = DayKey.key(Date())
     private var cancellables: Set<AnyCancellable> = []
 
@@ -141,8 +142,8 @@ final class AppModel: ObservableObject {
         camera.onObservation = { [weak self] o in self?.observe(o) }
         camera.onStats = { [weak self] s in self?.latestVisionStats = s }
         power.onChange = { [weak self] reason, active in self?.powerChanged(reason, active: active) }
-        notifications.onAction = { [weak self] action, response, instance, kind in
-            self?.handle(action: action, response: response, instance: instance, kind: kind)
+        notifications.onTap = { [weak self] tap, instance, kind in
+            self?.handleNotification(tap, instance: instance, kind: kind)
         }
         NotificationCenter.default.publisher(for: .AVCaptureDeviceWasConnected)
             .sink { [weak self] _ in self?.lastCameraAttempt = .distantPast }
@@ -158,7 +159,7 @@ final class AppModel: ObservableObject {
         // still allowed).
         appNapToken = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep], reason: "Tracking activity for break reminders")
         reloadPastDays()
-        notifications.setUp()
+        notifications.setUp()   // idempotent; normally already done before launch finished
         recomputePersonalization()
         recomputePatterns()
         tick()
@@ -232,6 +233,7 @@ final class AppModel: ObservableObject {
         updateCamera()
         accountCamera()
         updateGuidedBreak()
+        if now.timeIntervalSince(lastFrequentCheck) >= 60 { checkFrequentPatterns() }
         evaluate()
         if now.timeIntervalSince(lastResourceSample) >= 30 {
             lastResourceSample = now
@@ -265,48 +267,36 @@ final class AppModel: ObservableObject {
 
     private func evaluate() {
         var candidates = BreakScheduler.due(now: now, tracker: runtime.tracker, settings: settings, adjustments: adjustments)
-        candidates += postureCandidates()
+        let breakDue = candidates.contains { $0.kind.isBreak }
+        if guidedBreak == nil {
+            candidates += PostureReminders.candidates(active: activeIssues, setupIssues: patternIssues, breakDue: breakDue,
+                                                      nextBreakAt: nextBreak?.at, now: now, settings: settings)
+        }
         context.pausedUntil = runtime.pausedUntil
-        decision = runtime.engine.decide(candidates: candidates, now: now, context: context, settings: settings, adjustments: adjustments)
+        decision = runtime.engine.evaluate(candidates: candidates, now: now, context: context, settings: settings, adjustments: adjustments)
+        // Never leave an obsolete notification on screen.
+        for k in decision.expired { notifications.clear(k) }
         if let r = decision.deliver {
             runtime.engine.recordDelivered(r, at: now)
             ledger.prompted(r.kind, at: now)
             notifications.post(r, canSnooze: canSnooze(r))
         }
+        runtime.decisionLog.record(decision, now: now)
     }
 
-    private func postureCandidates() -> [DueReminder] {
-        guard guidedBreak == nil else { return [] }
-        var out: [DueReminder] = []
-        for a in activeIssues {
-            let t = settings.thresholds(for: a.issue)
-            let detectedAt = a.since.addingTimeInterval(t.minDuration)
-            let lasting = now.timeIntervalSince(a.since)
-            let pattern = patternIssues.contains(a.issue)
-            let level: InterventionLevel = (pattern || now < detectedAt.addingTimeInterval(settings.postureNotifyAfter)) ? .passive : .gentle
-            let text = Self.postureText(a.issue, lasting: lasting)
-            out.append(DueReminder(kind: ReminderKind(a.issue), dueAt: detectedAt, instanceID: "\(a.issue.rawValue)@\(Int(a.since.timeIntervalSince1970))", level: level, title: text.title, body: text.body, priority: 60))
-            if pattern {
-                out.append(DueReminder(kind: .workstationReview, dueAt: detectedAt, instanceID: "review-\(a.issue.rawValue)-\(DayKey.key(now))", level: .pattern, title: "This keeps coming back", body: PatternDetector.advice(for: a.issue), priority: 30))
+    /// Issues that keep coming back in short bouts: recorded once a day,
+    /// and they lead to the workstation suggestion, not posture reminders.
+    private func checkFrequentPatterns() {
+        lastFrequentCheck = now
+        guard cameraState.isRunning else { return }
+        var changed = false
+        for (issue, flag) in posture.frequentFlags(now: now, settings: settings) {
+            if ledger.flagFrequent(issue, flag) {
+                changed = true
+                runtime.decisionLog.note("\(issue.title) came up often in short bouts (\(Int((flag.share * 100).rounded()))% of \(Int(flag.observedMinutes.rounded())) min observed)", kind: ReminderKind(issue), at: now)
             }
         }
-        return out
-    }
-
-    static func postureText(_ issue: PostureIssue, lasting: TimeInterval) -> (title: String, body: String) {
-        let d = Format.duration(lasting)
-        switch issue {
-        case .headDown:
-            return ("Your head has been tilted downward for a while", "About \(d). Try changing position: sit back and bring your gaze up. If this happens a lot, the screen may be too low.")
-        case .forwardLean:
-            return ("You've been leaning toward the screen", "About \(d). Sit back against your chair; if text is hard to read, enlarge it (⌘+) instead of moving closer.")
-        case .lateralTilt:
-            return ("Your head has been tilted to one side", "About \(d). Re-centre your head, and check whether what you're looking at sits off to one side.")
-        case .shoulderAsymmetry:
-            return ("One shoulder has been raised for a while", "About \(d). Let both shoulders drop. Check the mouse isn't too far out or too high.")
-        case .staticPosture:
-            return ("Your neck position has stayed very still", "About \(d) with little movement. Try a comfortable movement break — roll your shoulders, look around, or stand for a minute.")
-        }
+        if changed { recomputePatterns() }
     }
 
     // MARK: Camera
@@ -517,18 +507,39 @@ final class AppModel: ObservableObject {
 
     // MARK: Responses
 
-    func handle(action: NotificationAction?, response: PromptResponse?, instance: String, kind: ReminderKind) {
+    /// A click on a notification (body, button or close).
+    func handleNotification(_ tap: NotificationTap, instance: String, kind: ReminderKind) {
+        let routed = NotificationRouting.route(tap, kind: kind)
+        handle(action: routed.action, response: routed.response, instance: instance, kind: kind)
+    }
+
+    /// An action from the menu-bar card.
+    func perform(_ action: CoachAction, _ r: DueReminder) {
+        handleNotification(.button(action), instance: r.instanceID, kind: r.kind)
+    }
+
+    func dismiss(_ r: DueReminder) {
+        handleNotification(.dismissed, instance: r.instanceID, kind: r.kind)
+    }
+
+    func handle(action: CoachAction?, response: PromptResponse?, instance: String, kind: ReminderKind) {
         if let response { record(response, kind: kind, instance: instance) }
         switch action {
         case .startRoutine: WindowManager.shared.showRoutine(RoutineLibrary.suggested(for: kind))
         case .takeBreak: startGuidedBreak()
         case .recalibrate: WindowManager.shared.show(.calibration)
         case .eyeDone: runtime.tracker.acknowledgeEyeRest(at: Date())
-        case .openSetup: WindowManager.shared.show(.setup)
-        case .snooze, .unhelpful, nil: break
+        case .openSetup:
+            setupFocus = PostureReminders.setupIssue(of: instance).map(ReminderKind.setupItem(for:))
+            WindowManager.shared.show(.setup)
+        case .snooze, .notHelpful, nil: break
         }
         evaluate()
     }
+
+    /// The setup item a workstation suggestion points to, for the setup
+    /// assistant to open at.
+    @Published var setupFocus: String?
 
     func record(_ response: PromptResponse, kind: ReminderKind, instance: String) {
         let t = Date()
@@ -538,12 +549,30 @@ final class AppModel: ObservableObject {
         runtime.engine.record(response, kind: kind, instanceID: instance.isEmpty ? nil : instance, now: t)
         ledger.responded(kind, response, at: t)
         if response != .helpful { notifications.clear(kind) }
+        let what: String
+        switch response {
+        case .accepted: what = "you acted on it"
+        case .snoozed: what = "snoozed for \(Int(settings.snoozeDuration / 60)) min"
+        case .dismissed: what = "dismissed"
+        case .unhelpful: what = "marked not helpful"
+        case .helpful: what = "marked helpful"
+        }
+        if response != .snoozed { runtime.decisionLog.answered(instance) }
+        runtime.decisionLog.note("\(kind.title): \(what)", kind: kind, at: t)
+        if runtime.engine.isSilenced(kind, now: t), response == .dismissed || response == .unhelpful {
+            runtime.decisionLog.note("\(kind.title): menu bar only for the rest of today after repeated dismissals", kind: kind, at: t)
+        }
         if response == .unhelpful || response == .dismissed { recomputePersonalization() }
     }
 
-    /// From the menu-bar card.
+    /// From the menu-bar card (snooze, not helpful, dismiss).
     func respond(_ r: DueReminder, _ response: PromptResponse) {
-        handle(action: response == .snoozed ? .snooze : (response == .unhelpful ? .unhelpful : nil), response: response, instance: r.instanceID, kind: r.kind)
+        switch response {
+        case .snoozed: perform(.snooze, r)
+        case .unhelpful: perform(.notHelpful, r)
+        case .dismissed: dismiss(r)
+        default: handle(action: nil, response: response, instance: r.instanceID, kind: r.kind)
+        }
     }
 
     // MARK: Breaks & routines
@@ -615,8 +644,8 @@ final class AppModel: ObservableObject {
 
     // MARK: Comfort, personalization, patterns
 
-    func saveComfort(neck: Int, back: Int, eyes: Int, note: String?) {
-        ledger.setComfort(ComfortCheckIn(neck: neck, back: back, eyes: eyes, note: note?.isEmpty == true ? nil : note, at: Date()))
+    func saveComfort(_ c: ComfortCheckIn) {
+        ledger.setComfort(c)
         persist()
     }
 
@@ -632,10 +661,16 @@ final class AppModel: ObservableObject {
     private func recomputePatterns() {
         let earlier = history(days: 7).dropLast().map { Set($0.postureEpisodes.filter { $0.value > 0 }.keys) }
         patternIssues = PatternDetector.persistent(todayEpisodes: today.postureEpisodes, recentDays: Array(earlier))
+            .union(today.frequentPatterns.keys)
     }
 
     func setChecklist(_ id: String, _ status: String?) {
+        let old = runtime.setupChecklist[id]
         runtime.setupChecklist[id] = status
+        // Workstation changes appear next to comfort and posture trends.
+        if status == "done", old != "done", let item = WorkstationGuide.items.first(where: { $0.id == id }) {
+            ledger.note("Workstation: \(item.title.lowercased()) set", at: Date())
+        }
         persist()
     }
 

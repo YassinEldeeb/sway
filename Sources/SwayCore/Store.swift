@@ -3,19 +3,65 @@ import Foundation
 extension PostureIssue: CodingKeyRepresentable {}
 extension ReminderKind: CodingKeyRepresentable {}
 
+/// A daily comfort check-in: 0 = no discomfort, 10 = worst imaginable.
+/// Every area is optional, so the user can answer only what applies.
 public struct ComfortCheckIn: Codable, Equatable, Sendable {
-    public var neck: Int
-    public var back: Int
-    public var eyes: Int
+    public enum Area: String, CaseIterable, Sendable {
+        case neck, upperBack, lowerBack, eyes
+
+        public var title: String {
+            switch self {
+            case .neck: return "Neck"
+            case .upperBack: return "Upper back"
+            case .lowerBack: return "Lower back"
+            case .eyes: return "Eye fatigue"
+            }
+        }
+    }
+
+    public var neck: Int?
+    public var upperBack: Int?
+    public var lowerBack: Int?
+    public var eyes: Int?
+    /// Check-ins from before the back was split into upper and lower. Kept
+    /// as recorded; never copied into either new area.
+    public var back: Int?
     public var note: String?
     public var at: Date
 
-    public init(neck: Int, back: Int, eyes: Int, note: String? = nil, at: Date) {
-        self.neck = min(max(neck, 0), 10)
-        self.back = min(max(back, 0), 10)
-        self.eyes = min(max(eyes, 0), 10)
+    public init(neck: Int? = nil, upperBack: Int? = nil, lowerBack: Int? = nil, eyes: Int? = nil, note: String? = nil, at: Date) {
+        let clamp = { (v: Int?) in v.map { min(max($0, 0), 10) } }
+        self.neck = clamp(neck)
+        self.upperBack = clamp(upperBack)
+        self.lowerBack = clamp(lowerBack)
+        self.eyes = clamp(eyes)
         self.note = note.map { String($0.prefix(500)) }
         self.at = at
+    }
+
+    public subscript(area: Area) -> Int? {
+        switch area {
+        case .neck: return neck
+        case .upperBack: return upperBack
+        case .lowerBack: return lowerBack
+        case .eyes: return eyes
+        }
+    }
+
+    public var isEmpty: Bool { Area.allCases.allSatisfy { self[$0] == nil } && back == nil }
+
+    enum CodingKeys: String, CodingKey { case neck, upperBack, lowerBack, eyes, back, note, at }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let clamp = { (v: Int?) in v.map { min(max($0, 0), 10) } }
+        neck = clamp(c.lenient(Int.self, .neck))
+        upperBack = clamp(c.lenient(Int.self, .upperBack))
+        lowerBack = clamp(c.lenient(Int.self, .lowerBack))
+        eyes = clamp(c.lenient(Int.self, .eyes))
+        back = clamp(c.lenient(Int.self, .back))
+        note = c.lenient(String.self, .note)
+        at = try c.decode(Date.self, forKey: .at)
     }
 }
 
@@ -45,12 +91,38 @@ public struct DailyRecord: Codable, Equatable, Sendable {
     public var routinesCompleted = 0
     public var comfort: ComfortCheckIn?
     public var log: [LogEntry] = []
+    /// Issues that came up often today in short bouts (see
+    /// `FrequentPatternDetector`), with when they were first noticed.
+    public var frequentPatterns: [PostureIssue: FrequentFlag] = [:]
 
     public static let maxBreaks = 300
     public static let maxStretches = 300
     public static let maxLog = 300
 
     public init(day: String) { self.day = day }
+
+    enum CodingKeys: String, CodingKey {
+        case day, activeSeconds, stretches, breaks, postureSeconds, postureEpisodes, cameraSeconds, cameraReliableSeconds, prompts, routinesCompleted, comfort, log, frequentPatterns
+    }
+
+    /// Tolerant: a field added by a newer version, or one damaged value,
+    /// never makes the whole day unreadable (which would lose it).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        day = try c.decode(String.self, forKey: .day)
+        activeSeconds = c.lenient(Double.self, .activeSeconds) ?? 0
+        stretches = c.lenient([Double].self, .stretches) ?? []
+        breaks = c.lenient([BreakRecord].self, .breaks) ?? []
+        postureSeconds = c.lenient([PostureIssue: Double].self, .postureSeconds) ?? [:]
+        postureEpisodes = c.lenient([PostureIssue: Int].self, .postureEpisodes) ?? [:]
+        cameraSeconds = c.lenient(Double.self, .cameraSeconds) ?? 0
+        cameraReliableSeconds = c.lenient(Double.self, .cameraReliableSeconds) ?? 0
+        prompts = c.lenient([ReminderKind: ResponseCounts].self, .prompts) ?? [:]
+        routinesCompleted = c.lenient(Int.self, .routinesCompleted) ?? 0
+        comfort = c.lenient(ComfortCheckIn.self, .comfort)
+        log = c.lenient([LogEntry].self, .log) ?? []
+        frequentPatterns = c.lenient([PostureIssue: FrequentFlag].self, .frequentPatterns) ?? [:]
+    }
 
     public var longestStretch: Double { stretches.max() ?? 0 }
 
@@ -180,6 +252,19 @@ public struct Ledger: Equatable {
         update(DayKey.key(at, calendar: calendar)) { $0.routinesCompleted += 1 }
     }
 
+    /// Records the first time today an issue was found recurring in short
+    /// bouts. Later flags the same day change nothing.
+    @discardableResult
+    public mutating func flagFrequent(_ issue: PostureIssue, _ flag: FrequentFlag, calendar: Calendar = .current) -> Bool {
+        let day = DayKey.key(flag.at, calendar: calendar)
+        guard record(day).frequentPatterns[issue] == nil else { return false }
+        update(day) { r in
+            r.frequentPatterns[issue] = flag
+            r.appendLog("Recurring in short bouts: \(issue.title.lowercased()) (\(Int((flag.share * 100).rounded()))% of \(Int(flag.observedMinutes.rounded())) min observed, \(flag.bouts) bouts)", at: flag.at)
+        }
+        return true
+    }
+
     public mutating func setComfort(_ c: ComfortCheckIn, calendar: Calendar = .current) {
         update(DayKey.key(c.at, calendar: calendar)) { $0.comfort = c }
     }
@@ -192,7 +277,23 @@ public struct RuntimeState: Codable, Equatable, Sendable {
     public var pausedUntil: Date?
     public var setupChecklist: [String: String] = [:]
     public var setupMeasurements: [String: Double] = [:]
+    /// What Sway decided about reminders, newest last.
+    public var decisionLog = DecisionLog()
     public init() {}
+
+    enum CodingKeys: String, CodingKey { case tracker, engine, pausedUntil, setupChecklist, setupMeasurements, decisionLog }
+
+    /// Tolerant: missing or damaged parts fall back to defaults one by one,
+    /// so timers survive an upgrade.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        tracker = c.lenient(ActivityTracker.self, .tracker) ?? ActivityTracker()
+        engine = c.lenient(InterventionEngine.self, .engine) ?? InterventionEngine()
+        pausedUntil = c.lenient(Date.self, .pausedUntil)
+        setupChecklist = c.lenient([String: String].self, .setupChecklist) ?? [:]
+        setupMeasurements = c.lenient([String: Double].self, .setupMeasurements) ?? [:]
+        decisionLog = c.lenient(DecisionLog.self, .decisionLog) ?? DecisionLog()
+    }
 }
 
 /// JSON files under Application Support. Small, human-inspectable, written
@@ -270,7 +371,16 @@ public final class SwayStore {
 
     public func save(_ r: RuntimeState) throws { try write(r, directory.appendingPathComponent("state.json")) }
 
-    public func loadDay(_ day: String) -> DailyRecord? { read(DailyRecord.self, daysDir.appendingPathComponent("\(day).json")) }
+    /// A day file that exists but can't be read is moved aside, never
+    /// overwritten, so a bug can't silently erase a day.
+    public func loadDay(_ day: String) -> DailyRecord? {
+        let url = daysDir.appendingPathComponent("\(day).json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if let r = try? decoder.decode(DailyRecord.self, from: data) { return r }
+        let aside = daysDir.appendingPathComponent("\(day).unreadable-\(Int(Date().timeIntervalSince1970)).json")
+        try? fm.moveItem(at: url, to: aside)
+        return nil
+    }
 
     public func save(_ r: DailyRecord) throws { try write(r, daysDir.appendingPathComponent("\(r.day).json")) }
 
@@ -308,7 +418,7 @@ public final class SwayStore {
     }
 
     public func storedDayCount() -> Int {
-        (try? fm.contentsOfDirectory(atPath: daysDir.path).filter { $0.hasSuffix(".json") }.count) ?? 0
+        (try? fm.contentsOfDirectory(atPath: daysDir.path).filter { $0.hasSuffix(".json") && $0.count == 15 }.count) ?? 0
     }
 
     public func totalBytes() -> Int {
