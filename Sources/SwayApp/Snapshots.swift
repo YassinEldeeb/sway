@@ -80,7 +80,7 @@ enum Snapshots {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let model = AppModel.shared
         model.start()
-        let shots: [(String, CGSize, AnyView)] = [
+        var shots: [(String, CGSize, AnyView)] = [
             ("menu", CGSize(width: 340, height: 470), AnyView(MenuView())),
             ("dashboard-today", CGSize(width: 900, height: 900), AnyView(DashboardView(tab: .today))),
             ("dashboard-trends", CGSize(width: 900, height: 980), AnyView(DashboardView(tab: .trends))),
@@ -93,6 +93,10 @@ enum Snapshots {
             ("settings", CGSize(width: 640, height: 600), AnyView(SettingsView())),
             ("onboarding", CGSize(width: 560, height: 560), AnyView(OnboardingView())),
         ]
+        // Every setup item, tall enough to show its whole pane.
+        shots += WorkstationGuide.items.map { item in
+            ("setup-\(item.id)", CGSize(width: 760, height: 1060), AnyView(SetupAssistantView(initialItem: item.id)))
+        }
         for (name, size, view) in shots {
             for dark in [false, true] {
                 let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)!

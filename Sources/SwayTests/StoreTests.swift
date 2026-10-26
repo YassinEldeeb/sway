@@ -125,4 +125,37 @@ let storeTests: [TestCase] = [
         expectEqual(Set(all.map(\.id)).count, all.count)
         for k in ReminderKind.allCases { _ = RoutineLibrary.suggested(for: k) }
     },
+    TestCase(name: "an answer saved for the old keyboard-and-mouse item carries over to both new items") {
+        let old = ["keyboard-mouse": "done", "monitor-height": "todo"]
+        expectEqual(WorkstationGuide.answer(for: "keyboard", in: old), "done")
+        expectEqual(WorkstationGuide.answer(for: "mouse", in: old), "done")
+        expectEqual(WorkstationGuide.answer(for: "monitor-height", in: old), "todo")
+        // A new answer wins over the old one.
+        expectEqual(WorkstationGuide.answer(for: "mouse", in: old.merging(["mouse": "na"]) { $1 }), "na")
+        // Migration copies the old answer and drops the old id, so clearing
+        // a new item afterwards doesn't fall back to it.
+        var m = WorkstationGuide.migrated(old)
+        expectEqual(m, ["keyboard": "done", "mouse": "done", "monitor-height": "todo"])
+        m["keyboard"] = nil
+        expectEqual(WorkstationGuide.answer(for: "keyboard", in: m), nil)
+        expectEqual(WorkstationGuide.migrated(["mouse": "na", "keyboard-mouse": "done"]), ["mouse": "na", "keyboard": "done"])
+        expectEqual(WorkstationGuide.migrated(["chair-height": "done"]), ["chair-height": "done"])
+    },
+    TestCase(name: "every setup item has a diagram-ready id, and outside ids resolve") {
+        let ids = WorkstationGuide.items.map(\.id)
+        expectEqual(Set(ids).count, ids.count)
+        expectEqual(ids, ["monitor-height", "viewing-distance", "screen-angle", "external-monitor", "chair-height", "foot-support",
+                          "desk-height", "keyboard", "mouse", "forearm-support", "neck-shoulders", "variation"])
+        // Ids that posture reminders point to stay valid.
+        for id in ["monitor-height", "viewing-distance", "external-monitor", "forearm-support", "variation"] {
+            expectEqual(WorkstationGuide.item(id)?.id, id)
+        }
+        expectEqual(WorkstationGuide.item("keyboard-mouse")?.id, "keyboard")
+        expect(WorkstationGuide.item("nonsense") == nil && WorkstationGuide.item(nil) == nil)
+        // Approximate guidance reads as approximate.
+        for item in WorkstationGuide.items where item.guidance.contains("°") || item.guidance.contains("cm") {
+            let g = item.guidance.lowercased()
+            expect(g.contains("about") || g.contains("roughly") || g.contains("around") || g.contains("often"), "\(item.id) hedges its numbers")
+        }
+    },
 ]

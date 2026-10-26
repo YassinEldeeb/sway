@@ -3,7 +3,13 @@ import SwiftUI
 
 struct SetupAssistantView: View {
     @EnvironmentObject var model: AppModel
-    @State private var selected = WorkstationGuide.items.first!.id
+    @State private var selected: String
+
+    /// `initialItem` opens a specific item, e.g. the one a "This keeps
+    /// coming back" reminder points to.
+    init(initialItem: String? = nil) {
+        _selected = State(initialValue: WorkstationGuide.item(initialItem)?.id ?? WorkstationGuide.items.first!.id)
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -18,7 +24,7 @@ struct SetupAssistantView: View {
                                 Image(systemName: item.symbol).frame(width: 18).foregroundStyle(Theme.accent)
                                 Text(item.title)
                                 Spacer()
-                                statusIcon(model.runtime.setupChecklist[item.id])
+                                statusIcon(WorkstationGuide.answer(for: item.id, in: model.runtime.setupChecklist))
                             }
                             .tag(item.id)
                         }
@@ -37,8 +43,11 @@ struct SetupAssistantView: View {
                         MeasurementsPane()
                     } else if let item = WorkstationGuide.items.first(where: { $0.id == selected }) {
                         ItemPane(item: item, next: next(after: item))
+                            .id(item.id)
+                            .transition(.opacity)
                     }
                 }
+                .animation(.easeOut(duration: 0.18), value: selected)
                 .padding(28)
                 .padding(.top, 10)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -74,7 +83,10 @@ private struct CalibrationStatusRow: View {
     @EnvironmentObject var model: AppModel
 
     var body: some View {
-        let done = WorkstationGuide.items.filter { model.runtime.setupChecklist[$0.id] == "done" || model.runtime.setupChecklist[$0.id] == "na" }.count
+        let done = WorkstationGuide.items.filter {
+            let a = WorkstationGuide.answer(for: $0.id, in: model.runtime.setupChecklist)
+            return a == "done" || a == "na"
+        }.count
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Checklist").font(.system(size: 12, weight: .medium))
@@ -105,8 +117,8 @@ private struct ItemPane: View {
                 Spacer()
                 EvidenceTag(level: item.evidence)
             }
+            SetupIllustration(itemID: item.id)
             Text(item.guidance).font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
-            if item.id == "monitor-height" { MonitorDiagram().frame(height: 170) }
             Card {
                 VStack(alignment: .leading, spacing: 10) {
                     SectionLabel("Quick check")
@@ -129,48 +141,18 @@ private struct ItemPane: View {
     }
 
     private func choice(_ label: String, _ value: String) -> some View {
-        let on = model.runtime.setupChecklist[item.id] == value
-        return Button(label) { model.setChecklist(item.id, on ? nil : value) }
-            .buttonStyle(PillButtonStyle(prominent: on))
-    }
-}
-
-/// Side view: eye line, the top of the screen at or slightly below it, and
-/// the comfortable downward gaze to the screen's centre.
-private struct MonitorDiagram: View {
-    var body: some View {
-        Canvas { ctx, size in
-            let ink = Theme.accent
-            let eye = CGPoint(x: 70, y: 60)
-            let headRect = CGRect(x: 40, y: 34, width: 52, height: 56)
-            ctx.stroke(Path(ellipseIn: headRect), with: .color(ink), lineWidth: 3)
-            ctx.fill(Path(ellipseIn: CGRect(x: eye.x + 10, y: eye.y - 3, width: 6, height: 6)), with: .color(ink))
-            // Eye line
-            var eyeLine = Path()
-            eyeLine.move(to: CGPoint(x: eye.x + 16, y: eye.y))
-            eyeLine.addLine(to: CGPoint(x: size.width - 40, y: eye.y))
-            ctx.stroke(eyeLine, with: .color(.secondary), style: StrokeStyle(lineWidth: 1, dash: [4, 4]))
-            ctx.draw(Text("eye level").font(.system(size: 10)).foregroundColor(.secondary), at: CGPoint(x: size.width - 70, y: eye.y - 10))
-            // Monitor, tilted slightly back, top at eye level.
-            let mx = size.width - 120
-            var screen = Path()
-            screen.move(to: CGPoint(x: mx, y: eye.y + 2))
-            screen.addLine(to: CGPoint(x: mx + 14, y: eye.y + 82))
-            ctx.stroke(screen, with: .color(ink), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-            var stand = Path()
-            stand.move(to: CGPoint(x: mx + 10, y: eye.y + 62))
-            stand.addLine(to: CGPoint(x: mx + 30, y: eye.y + 100))
-            stand.move(to: CGPoint(x: mx + 10, y: eye.y + 100))
-            stand.addLine(to: CGPoint(x: mx + 50, y: eye.y + 100))
-            ctx.stroke(stand, with: .color(.secondary), lineWidth: 3)
-            // Gaze to the centre, ~15–20° down.
-            var gaze = Path()
-            gaze.move(to: CGPoint(x: eye.x + 16, y: eye.y))
-            gaze.addLine(to: CGPoint(x: mx + 7, y: eye.y + 42))
-            ctx.stroke(gaze, with: .color(Theme.warm), style: StrokeStyle(lineWidth: 2, dash: [6, 3]))
-            ctx.draw(Text("≈15–20° down to the centre").font(.system(size: 11, weight: .medium)).foregroundColor(Theme.warm), at: CGPoint(x: (eye.x + mx) / 2 + 10, y: eye.y + 36))
-            ctx.draw(Text("about an arm's length").font(.system(size: 10)).foregroundColor(.secondary), at: CGPoint(x: (eye.x + mx) / 2 + 10, y: eye.y + 96))
+        let on = WorkstationGuide.answer(for: item.id, in: model.runtime.setupChecklist) == value
+        return Button(label) {
+            // Copy an answer saved under a replaced item onto the new items
+            // first, so clearing this one doesn't fall back to it.
+            let current = model.runtime.setupChecklist
+            let migrated = WorkstationGuide.migrated(current)
+            for id in Set(current.keys).union(migrated.keys) where current[id] != migrated[id] {
+                model.setChecklist(id, migrated[id])
+            }
+            model.setChecklist(item.id, on ? nil : value)
         }
+        .buttonStyle(PillButtonStyle(prominent: on))
     }
 }
 

@@ -141,52 +141,57 @@ public enum WorkstationGuide {
     public static let items: [GuideItem] = [
         GuideItem(id: "monitor-height", area: "Screen", symbol: "arrow.up.and.down.square",
                   title: "Monitor height",
-                  guidance: "Set the top of the screen at or slightly below eye level, so you look slightly down at the middle of the screen (roughly 15–20° below straight ahead). If you wear bifocals or progressive lenses, go lower so you don't tilt your head back. A laptop screen on its own is almost always too low: raise it on a stand and use an external keyboard and mouse.",
+                  guidance: "Set the top of the screen at or slightly below eye level, so you look slightly down at the middle of the screen (roughly 15–20° below straight ahead). If you wear bifocals or progressive lenses, a lower screen is usually more comfortable than tipping your head back. A laptop screen on its own usually sits too low for long sessions: a stand plus an external keyboard and mouse helps.",
                   check: "Sitting back comfortably, can you read the middle of the screen without bending your neck forward or tipping your chin up?",
                   evidence: .evidenceInformed),
         GuideItem(id: "viewing-distance", area: "Screen", symbol: "ruler",
                   title: "Viewing distance",
-                  guidance: "Place the screen about an arm's length away (roughly 50–100 cm / 20–40 in). If you lean in to read, enlarge the text rather than moving your head toward the screen.",
+                  guidance: "Place the screen roughly an arm's length away. For most people that's around 50–100 cm (20–40 in); larger screens usually sit toward the far end. If you lean in to read, enlarge the text (⌘+) rather than moving your head toward the screen.",
                   check: "Can you read comfortably while leaning back against your chair?",
                   evidence: .evidenceInformed),
         GuideItem(id: "screen-angle", area: "Screen", symbol: "rectangle.portrait.rotate",
                   title: "Screen angle and glare",
-                  guidance: "Tilt the screen back slightly (about 10–20°) so it faces your eyes. Place it at a right angle to windows and adjust brightness to the room to avoid glare and squinting.",
+                  guidance: "Tilt the screen back slightly, often about 10–20°, so it faces your eyes; tilt less if that picks up reflections from ceiling lights. Where you can, place the screen at a right angle to windows, and adjust brightness to the room to avoid glare and squinting.",
                   check: "Is the screen free of reflections from windows or lamps?",
                   evidence: .evidenceInformed),
         GuideItem(id: "external-monitor", area: "Screen", symbol: "rectangle.on.rectangle",
                   title: "External and multiple monitors",
-                  guidance: "Put the screen you use most directly in front of you, in line with the keyboard. With two screens used equally, butt them together and centre the seam on you; a secondary screen goes to the side, angled in, at the same height.",
+                  guidance: "Put the screen you use most directly in front of you, in line with the keyboard. If you use two screens about equally, place them side by side with the edges touching and the seam in front of you, both angled in slightly. A secondary screen goes to the side, angled in, at about the same height and distance.",
                   check: "Is the screen you use most straight ahead, so you're not turned to one side for hours?",
                   evidence: .evidenceInformed),
         GuideItem(id: "chair-height", area: "Chair", symbol: "chair",
                   title: "Chair height and back support",
-                  guidance: "Adjust the seat so your feet rest flat and your thighs are roughly level, knees about hip height. Sit back so the backrest supports your lower back; a slightly reclined backrest (100–110°) is fine.",
+                  guidance: "Adjust the seat so your feet rest flat and your thighs are roughly level, with knees at about hip height. Sit back so the backrest supports your lower back; a slight recline (roughly 100–110°) suits many people. Leave a small gap, a few fingers wide, between the front of the seat and the back of your knees.",
                   check: "Is your back supported without perching on the front of the seat?",
                   evidence: .evidenceInformed),
         GuideItem(id: "foot-support", area: "Chair", symbol: "shoeprints.fill",
                   title: "Foot support",
-                  guidance: "If raising the chair to desk height leaves your feet dangling, use a footrest (a box or a stack of books works).",
+                  guidance: "If raising the chair to suit the desk leaves your feet dangling or only your toes touching, use a footrest so both feet are supported. A sturdy box works.",
                   check: "Do both feet rest flat on the floor or a footrest?",
                   evidence: .evidenceInformed),
         GuideItem(id: "desk-height", area: "Desk", symbol: "table.furniture",
                   title: "Desk and keyboard height",
-                  guidance: "The keyboard should sit at about elbow height with your shoulders relaxed, elbows bent around 90–110°. If the desk is too high and can't change, raise the chair and add a footrest.",
+                  guidance: "Aim for the keyboard at about elbow height, with your shoulders relaxed and elbows bent at roughly 90–120°. If the desk is too high and can't be lowered, raise the chair and add a footrest; a keyboard tray is another option.",
                   check: "With your shoulders relaxed, are your forearms roughly level when typing?",
                   evidence: .evidenceInformed),
-        GuideItem(id: "keyboard-mouse", area: "Desk", symbol: "keyboard",
-                  title: "Keyboard and mouse placement",
-                  guidance: "Keep the keyboard and mouse close and at the same height, the mouse right beside the keyboard. Keep wrists roughly straight; a flat keyboard (feet folded) usually helps.",
+        GuideItem(id: "keyboard", area: "Desk", symbol: "keyboard",
+                  title: "Keyboard placement",
+                  guidance: "Centre the keyboard's letter keys on your body, close enough that your elbows can stay near your sides. Keep your wrists roughly straight: a flat keyboard (feet folded) often helps, and avoid pressing your wrists on a hard edge while you type.",
+                  check: "Is the keyboard straight in front of you, close enough that you don't reach forward to type?",
+                  evidence: .evidenceInformed),
+        GuideItem(id: "mouse", area: "Desk", symbol: "computermouse",
+                  title: "Mouse placement",
+                  guidance: "Keep the mouse right beside the keyboard, at the same height, so you use it with your elbow near your side. A keyboard without a number pad shortens the reach.",
                   check: "Can you reach the mouse without stretching your arm out to the side or forward?",
                   evidence: .evidenceInformed),
         GuideItem(id: "forearm-support", area: "Desk", symbol: "hand.raised",
                   title: "Forearm support",
-                  guidance: "Let your forearms rest on armrests or the desk so your shoulders don't hold your arms up. Armrests should be low enough that your shoulders stay down.",
+                  guidance: "Let your forearms rest on armrests or the desk so your shoulders don't hold your arms up. If you use armrests, set them low enough that your shoulders stay down and your elbows stay close to your body.",
                   check: "Are your shoulders relaxed (not lifted) while you type?",
                   evidence: .evidenceInformed),
         GuideItem(id: "neck-shoulders", area: "You", symbol: "person.fill",
                   title: "Neck and shoulder comfort",
-                  guidance: "Use a headset for calls instead of cradling a phone. Place documents you read often next to the screen at the same height.",
+                  guidance: "Use a headset or speaker for calls instead of holding a phone between ear and shoulder. Put documents you read often next to the screen at about the same height and distance, rather than flat on the desk.",
                   check: "Do you avoid holding your head turned or tilted for long periods?",
                   evidence: .evidenceInformed),
         GuideItem(id: "variation", area: "You", symbol: "figure.walk",
@@ -195,6 +200,35 @@ public enum WorkstationGuide {
                   check: "Do you change position at least every half hour or so?",
                   evidence: .heuristic),
     ]
+
+    /// Items that replaced an older one. Answers saved under the old id
+    /// still count until the user answers the new item.
+    public static let legacyIDs: [String: String] = ["keyboard": "keyboard-mouse", "mouse": "keyboard-mouse"]
+
+    /// The user's answer for an item, falling back to the item it replaced.
+    public static func answer(for id: String, in checklist: [String: String]) -> String? {
+        checklist[id] ?? legacyIDs[id].flatMap { checklist[$0] }
+    }
+
+    /// The checklist with old answers copied onto the items that replaced
+    /// them and the old ids removed. Apply before changing an answer, so
+    /// clearing a new item doesn't fall back to the old one.
+    public static func migrated(_ checklist: [String: String]) -> [String: String] {
+        var out = checklist
+        for (new, old) in legacyIDs {
+            if out[new] == nil, let v = checklist[old] { out[new] = v }
+        }
+        for old in Set(legacyIDs.values) { out[old] = nil }
+        return out
+    }
+
+    /// An item id from outside (a notification, an older version), or nil
+    /// if no current item has it.
+    public static func item(_ id: String?) -> GuideItem? {
+        guard let id else { return nil }
+        let resolved = id == "keyboard-mouse" ? "keyboard" : id
+        return items.first { $0.id == resolved }
+    }
 
     /// Advice from manual measurements. Never claims a measurement the user
     /// didn't give.
