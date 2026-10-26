@@ -60,6 +60,8 @@ public enum Blocker: Equatable, Sendable {
     case settling(until: Date)
     /// A more important reminder was sent in the same evaluation.
     case anotherFirst
+    /// The user has just moved back (`DueReminder.standby`).
+    case standby
 
     public var label: String {
         switch self {
@@ -72,6 +74,7 @@ public enum Blocker: Equatable, Sendable {
         case .dailyBudget: return "Daily limit reached; shown in the menu bar only"
         case .settling(let until): return "Giving you a moment after a hold ends; next possible at \(Clock.time(until))"
         case .anotherFirst: return "A more important reminder went out first"
+        case .standby: return "You've moved back; this clears in a few seconds if you stay there"
         }
     }
 }
@@ -223,7 +226,7 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     /// What would happen now, without changing any state.
     public func decide(candidates: [DueReminder], now: Date, context: InterruptionContext, settings: CoachSettings, adjustments: Adjustments = .neutral) -> InterventionDecision {
         let sorted = candidates.sorted { $0.priority > $1.priority }
-        let visible = sorted.filter { !isHidden($0, now: now) }
+        let visible = sorted.filter { !isHidden($0, now: now) && (!$0.standby || posted[$0.kind] == $0.instanceID) }
         let expired = expiredKinds(candidates: candidates)
         if let hold = holdReason(now: now, context: context, settings: settings) {
             return InterventionDecision(deliver: nil, statuses: visible.map { ReminderStatus(reminder: $0, state: .held(hold)) }, hold: hold, expired: expired)
@@ -282,6 +285,7 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     /// Why `c` can't be notified now, or nil when it can.
     public func blocker(_ c: DueReminder, now: Date, settings: CoachSettings, adjustments: Adjustments = .neutral) -> Blocker? {
         if c.level == .menu { return .menuOnly }
+        if c.standby { return .standby }
         let snooze = snoozes[c.instanceID]
         let returningFromSnooze = snooze != nil && snooze?.until != .distantFuture
         if deliveredInstances[c.instanceID] != nil, !returningFromSnooze { return .alreadySent }

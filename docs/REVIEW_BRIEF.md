@@ -2,8 +2,9 @@
 
 For a reviewer who hasn't seen the project. It covers what the app does for
 the user, how each part works, the defaults, what has been verified, and
-where we'd like you to push. Repository: `~/development/sway`, commit
-`b26d40d` (2026-10-26). Paths below are relative to it.
+where we'd like you to push. Repository: `~/development/sway`, branch
+`master` (2026-10-26; updated after the reliability pass, §6). Paths below
+are relative to it.
 
 ## 1. What Sway is
 
@@ -59,8 +60,9 @@ Size: about 7,500 lines of Swift. The pure core (`Sources/SwayCore`, about
    - Clicking an action starts a routine or a break.
    - The dashboard shows the day and trends.
 4. **When something keeps recurring** (the same posture issue 3+ times a
-   day), Sway stops repeating it. It suggests fixing the setup once that
-   day, and the setup assistant opens from that suggestion.
+   day, on 3+ of the last 7 days, or often in short bouts), Sway stops
+   repeating it. It suggests fixing the setup once that day, and the setup
+   assistant opens at the matching item from that suggestion.
 
 ## 3. Features in detail
 
@@ -114,29 +116,39 @@ From top to bottom:
 
 This is the part users notice most. Everything below uses the default
 settings. Sources: `BreakScheduler.swift` (when a break is due and its
-text), `AppModel.swift` (`postureCandidates`, `postureText`),
-`InterventionEngine.swift` (whether it may be sent),
-`NotificationService.swift` (buttons and clicks).
+text), `PostureReminders.swift` (posture and workstation reminders, click
+routing), `InterventionEngine.swift` (whether it may be sent, and why
+not), `DecisionLog.swift`, `NotificationService.swift` (buttons).
 
 #### Every notification Sway can send
 
 Times are counted from the last real break, meaning time away of 2+ min or
 a completed routine or guided break.
 
-| Reminder | When it is due | Title and text (exact) | Buttons | What a click on the notification itself does |
+Clicking the notification itself does the reminder's main action, the
+same as the first button in the menu-bar card: a routine for posture and
+eye reminders and the movement break, a guided 3-min break for the longer
+break and the long session, and the setup assistant (opened at the matching
+item) for a workstation suggestion.
+
+| Reminder | When it is due | Title and text (exact) | Buttons | Click on the notification |
 | --- | --- | --- | --- | --- |
 | **Movement break** | 25 min of work. Not sent if a longer break is due within 10 min. | "Quick movement break" / "25 min since you last moved away. Stand up, roll your shoulders, or try a 1-minute routine." | Start 1-min routine · Take a 3-min break · Snooze 10 min · Not helpful | Opens "Desk mobility minute" |
-| **Longer break** | 55 min of work. | "Time for a longer break" / "You've been working continuously for 55 min. A short walk could help." | same as above | Opens "Walk break" (3 min) |
-| **Long session** | 120 min without a long break, then every 30 min. Replaces the longer-break reminder. | "You've been at it for 2 h" / "That's an unusually long stretch without a real break. A few minutes away from the desk — a short walk, water, daylight — is a good reset." | same as above | Opens "Walk break" |
+| **Longer break** | 55 min of work. | "Time for a longer break" / "You've been working continuously for 55 min. A short walk could help." | same as above | Starts a guided 3-min break |
+| **Long session** | 120 min without a long break, then every 30 min. Replaces the longer-break reminder. | "You've been at it for 2 h" / "That's an unusually long stretch without a real break. A few minutes away from the desk — a short walk, water, daylight — is a good reset." | same as above | Starts a guided 3-min break |
 | **Eye rest** (opt-in, off by default) | 20 min since the last eye rest or break. Skipped if a movement reminder is due within 3 min. | "Rest your eyes" / "Look at something about 6 metres (20 feet) away for 20 seconds, and blink a few times." | Done · Snooze 10 min · Not helpful | Opens "20-20-20 eye rest" |
 | **Head tilted down** (camera) | Held 5 min, then 3 more min (8 min in all). | "Your head has been tilted downward for a while" / "About 8 min. Try changing position: sit back and bring your gaze up. If this happens a lot, the screen may be too low." | Start 1-min routine · Snooze 10 min · Recalibrate · Not helpful | Opens "Gentle neck mobility" |
 | **Leaning toward the screen** (camera) | Held 5 + 3 min. | "You've been leaning toward the screen" / "About 8 min. Sit back against your chair; if text is hard to read, enlarge it (⌘+) instead of moving closer." | same as head down | Opens "Gentle neck mobility" |
 | **Head tilted to one side** (camera) | Held 5 + 3 min. | "Your head has been tilted to one side" / "About 8 min. Re-centre your head, and check whether what you're looking at sits off to one side." | same | Opens "Gentle neck mobility" |
 | **One shoulder raised** (camera, only if both shoulders are visible) | Held 10 + 3 min. | "One shoulder has been raised for a while" / "About 13 min. Let both shoulders drop. Check the mouse isn't too far out or too high." | same | Opens "Shoulder release" |
 | **Little movement** (camera) | Head barely moved for 45 min, then 3 more min. | "Your neck position has stayed very still" / "About 48 min with little movement. Try a comfortable movement break — roll your shoulders, look around, or stand for a minute." | same | Opens "Desk mobility minute" |
-| **"This keeps coming back"** (level 4) | A posture issue has been counted 3+ times today, or on 3+ of the last 7 days. At most once a day per issue. | "This keeps coming back" / issue-specific setup advice, e.g. for leaning: "You keep leaning toward the screen. Text size, screen distance or glasses can be the cause: try a larger font or moving the screen a little closer rather than bringing yourself to it." | Check my setup · Not helpful | Opens "Desk mobility minute". This looks wrong: it should open the setup assistant (see §8). |
+| **Workstation suggestion** | A posture issue keeps coming back: counted 3+ times today, on 3+ of the last 7 days, or seen often in short bouts (below). At most once a day per issue. | "<Issue> keeps coming back", e.g. "Leaning toward the screen keeps coming back" / issue-specific setup advice, e.g. "You keep leaning toward the screen. Text size, screen distance or glasses can be the cause: try a larger font or moving the screen a little closer rather than bringing yourself to it." | Check my setup · Not helpful | Opens the setup assistant at the matching item: head down → monitor height, leaning → viewing distance, head tilt → external monitors, shoulder → forearm support, little movement → varying position |
 
 The durations in the texts ("25 min", "About 8 min") are filled in live.
+There are three levels (`InterventionLevel`): **menu** (the menu bar only),
+**notify** (a notification with buttons) and **setup** (the workstation
+suggestion). The earlier four-level model ("gentle" vs "actionable") had no
+visible difference and was removed.
 
 What the buttons do:
 
@@ -150,11 +162,26 @@ What the buttons do:
   without a Snooze button.
 - **Recalibrate** opens calibration.
 - **Done** (eye rest) resets the eye-rest timer.
-- **Check my setup** opens the setup assistant.
+- **Check my setup** opens the setup assistant at the matching item.
 - **Not helpful** counts double toward back-off (below).
 - **Closing the notification** with its close control counts as a
   dismissal. A notification that simply times out of view counts as
   nothing.
+
+Buttons and clicks work after a relaunch: the notification delegate is set
+before launch finishes, and responses are matched by the reminder's id and
+kind, not by in-memory state.
+
+#### A notification never outlives its reason
+
+A posted notification is removed from Notification Center as soon as its
+reminder is no longer current:
+
+- the user took the break, or sat back (a posture episode that is easing
+  ends its reminder at once);
+- a newer occurrence of the same kind replaced it;
+- the reminder dropped back to the menu bar only (for example, the issue
+  became a workstation suggestion).
 
 #### What happens before something becomes a notification
 
@@ -164,6 +191,9 @@ every check passes, in this order:
 1. **Not held.** Notifications are held while:
    - coaching is paused (30 min, 1 h, 2 h, or until tomorrow);
    - notifications are turned off in Sway;
+   - macOS isn't letting Sway show notifications (permission not given or
+     turned off in System Settings). The popover says so and offers an
+     "Allow" button; nothing counts as sent;
    - it's quiet hours (opt-in, 22:00–07:00 by default);
    - another app is using the mic or camera (a likely call);
    - a full-screen app is in front.
@@ -175,49 +205,85 @@ every check passes, in this order:
    isn't re-sent; the next reminder is the next one due, such as the longer
    break at 55 min.
 3. **Not silenced for today** (back-off, below).
-4. **Past its cooldown** since the last notification of the same kind:
+4. **Settled after a hold.** When a call, full-screen app, pause or quiet
+   hours ends, Sway waits 3 min, then sends at most the one most important
+   reminder that is still current. Reminders that ended during the hold
+   (a break taken, a position changed) are never sent late, so there is no
+   burst after a meeting.
+5. **Past its cooldown** since the last notification of the same kind:
    - movement break and eye rest: 15 min;
    - longer break and long session: 20 min;
    - each posture issue: 25 min;
-   - "keeps coming back": 20 h.
+   - workstation suggestion: 20 h.
 
    Each consecutive dismissal doubles the cooldown, up to 4×.
    Personalization can lengthen it further.
-5. **At least 8 min since any Sway notification.**
-6. **Within budget:** at most 3 in the last hour and 14 today.
+6. **At least 8 min since any Sway notification.**
+7. **Within budget:** at most 3 in the last hour and 14 today. Long-session
+   reminders are exempt from budgets.
 
 If several reminders pass at once, the most important one is sent:
 
-1. long session;
-2. longer break;
-3. posture;
-4. movement break;
-5. "keeps coming back";
-6. eye rest.
+1. long session (100);
+2. longer break (80);
+3. posture (60);
+4. movement break (50);
+5. workstation suggestion (30);
+6. eye rest (20).
 
-The others wait in the menu bar.
+The others wait in the menu bar, each with a line saying why ("Another
+reminder went out recently; next possible at 10:42", "Hourly limit reached;
+next possible at 11:05", "A more important reminder went out first").
+
+**Posture and breaks together.** A posture reminder stays in the menu bar
+from 5 min before a break is due until 5 min after it fell due, with the
+note "A break is due soon and covers this." Outside that window posture
+reminders go out as usual, even while an ignored break is still pending.
 
 **Back-off.** Dismissing a kind 3 times in a row, or marking it "Not
 helpful" twice (each counts 2), stops notifications of that kind for the
-rest of the day. It still shows in the menu bar. Acting on a reminder
-resets the count. Long-session reminders are never silenced this way; they
-keep their growing cooldown instead.
+rest of the day only; the count starts over the next day. It still shows
+in the menu bar. Acting on a reminder resets the count. Long-session
+reminders are never silenced this way; they keep their growing cooldown
+instead.
 
-**Posture reminders once an issue is a pattern.** Once an issue has been
-counted 3+ times today, or on 3+ of the last 7 days, Sway stops sending its
-normal reminder. That issue
-goes back to the menu bar only, and the "This keeps coming back"
-notification is sent instead, at most once that day.
+**Posture reminders once an issue is a pattern.** Once an issue keeps
+coming back, Sway stops sending its normal reminder. That issue stays in
+the menu bar with the note "This keeps coming back today, so Sway suggests
+a setup change instead of repeating it.", and the workstation suggestion
+is sent instead, at most once that day.
+
+**Frequent short bouts** (`FrequentPatterns.swift`). Over a rolling
+60-min window, with at least 30 min of reliable camera time in it:
+
+- head down or leaning in: 4+ separate bouts over the line, each at least
+  30 s, adding up to 35%+ of the observed time;
+- little movement: 70%+ of the observed time very still.
+
+Shorter glances and shifts are ordinary movement and never count. Time
+with no face, low confidence or the camera off counts as neither "over" nor
+"observed". A flag is recorded once a day per issue and leads only to the
+workstation suggestion, never a notification per bout. The limits are in
+settings (`frequentPatterns`) and clamped to safe ranges.
+
+**Decision log.** Every change in a reminder's state (sent, held and why,
+waiting and why, expired, no longer due) is written once to a log of the
+last 200 entries, shown newest first under Settings → Diagnostics.
 
 #### What the user sees without any notification
 
 - **Menu bar icon:** the figure changes when a break or posture reminder is
   due. A camera mark shows whenever the camera is on.
 - **Popover:**
-  - an attention card for the most important current reminder, with the
-    same actions as the notification;
+  - an attention card for the most important current reminder, with its
+    main action first and a line saying whether it was sent, is waiting
+    (and why), or is held;
   - a "bell off" line when notifications are held, with the reason;
-  - the posture line ("… counts in 3:20") while a deviation is being timed.
+  - the posture line, which names the state: tracking, "Leaning toward the
+    screen · counts in 3:20" while a deviation is being timed, camera off
+    or unavailable, waiting for permission, needs calibration, away,
+    paused, low confidence, looking at another screen, or "Calibration may
+    be out of date" with a Recalibrate button.
 
 #### A worked example (defaults, camera on)
 
@@ -225,15 +291,18 @@ notification is sent instead, at most once that day.
 ignores it, and it stays in the menu.
 
 09:30 the user leans in. At 09:35 the lean counts, and the menu bar icon
-changes. At 09:38 the earliest posture notification would be allowed:
+changes. At 09:38 the posture notification is allowed:
 
+- the movement break fell due 13 min ago, so posture no longer gives way
+  to it;
 - 13 min since the last notification, so 8-min spacing passes;
 - 2nd notification this hour, within budget.
 
-So "You've been leaning toward the screen" arrives at 09:38.
+So "You've been leaning toward the screen" arrives at 09:38. If the user
+sits back at 09:40, the notification is removed.
 
 09:55 "Time for a longer break" (3rd this hour). Any other reminder before
-10:25 waits in the menu, because the hourly budget is used up.
+10:25 waits in the menu, with the reason and the time it could go out.
 
 **Reminders never start a routine by themselves.** A routine opens only
 when the user clicks: a button, the notification itself, a menu item, or
@@ -297,7 +366,15 @@ found):
    size, or a head turned more than 28° from calibration (looking at
    another screen). Below 60% usable frames in the last 2 minutes, Sway
    reports low confidence and warns about nothing.
-5. **Timing.** A value over its line starts a clock.
+5. **Calibration health.** If, for 10 minutes (with at least 5 observed),
+   85% of the time the face sits far from where it was calibrated (centre
+   more than 0.22 image widths to the side, or a size under 0.6× or over
+   1.8×), Sway marks the calibration "may be out of date": posture warnings
+   stop, the menu says why, and a Recalibrate button appears. Such frames
+   never produce posture values, so a moved camera can't raise a lean
+   warning first. It clears by itself after 3 min of 30% or less, or on
+   recalibration. Leaning and sitting back stay well inside these limits.
+6. **Timing.** A value over its line starts a clock.
    - It must stay over the line for 5 min: 10 min for shoulders, 45 min
      for little movement. Dips under 20 s are ignored.
    - Once counted, it ends only after 20 s below a lower exit line
@@ -310,10 +387,10 @@ found):
 | --- | --- |
 | 0:00 | Diagnostics shows "+29% face size · over 16%, counts in 5:00". The menu shows "Leaning toward the screen · counts in 5:00". The dashboard shows "now · counts in 5:00". |
 | 0:00–5:00 | Countdown. Sitting back for more than ~20 s resets it. |
-| 5:00 | Counted. The menu bar icon changes and the popover shows the issue with actions (level 1). The dashboard bar grows live. |
-| 8:00 | A notification (level 2) such as "You've been leaning toward the screen", with a concrete tip ("Sit back… enlarge text with ⌘+ instead of moving closer"). Subject to holds and budgets. |
-| Sitting back | After 20 s the episode ends and is saved to the day with its duration. |
-| 3rd episode of an issue today | Further notifications for it stop. A once-a-day "This keeps coming back" suggests a setup change. |
+| 5:00 | Counted. The menu bar icon changes and the popover shows the issue with actions and "A notification follows at <time> if this continues." The dashboard bar grows live. |
+| 8:00 | A notification such as "You've been leaning toward the screen", with a concrete tip ("Sit back… enlarge text with ⌘+ instead of moving closer"). Subject to holds, budgets, and a break falling due within 5 min. |
+| Sitting back | The reminder leaves the menu and any notification is removed at once. After 20 s the episode ends and is saved to the day with its duration. |
+| 3rd episode of an issue today | Further notifications for it stop. A once-a-day "Leaning toward the screen keeps coming back" suggests a setup change. |
 
 **Calibration rules:**
 
@@ -324,14 +401,18 @@ found):
 
 ### 3.6 Workstation setup assistant
 
-The assistant has 11 checklist items, each with guidance, an evidence label
-and a quick check ("Yes, it's set", "Not yet", "Doesn't apply"):
+The assistant has 12 checklist items, each with a diagram (a "common
+mistake" panel and one or two "recommended" panels with captions),
+guidance, an evidence label and a quick check ("Yes, it's set", "Not yet",
+"Doesn't apply"). Ranges are written as approximate ("about", "roughly",
+"for most people"), and a test checks that every item stating degrees or
+centimetres hedges them.
 
 | Area | Items |
 | --- | --- |
 | Screen | Monitor height, viewing distance, screen angle and glare, external monitor |
 | Chair | Chair height, foot support |
-| Desk | Desk height, keyboard and mouse, forearm support |
+| Desk | Desk height, keyboard placement, mouse placement, forearm support |
 | You | Neck and shoulders, varying position |
 
 There is also a measurements page:
@@ -344,8 +425,8 @@ There is also a measurements page:
 
 A calibration status row is included.
 
-Pending design work: only "Monitor height" has a diagram. The owner asked
-for a visual for every step, and that work hasn't started.
+Answers saved under the old combined "keyboard and mouse" item still count
+for both new items, and move to them on the next answer.
 
 ### 3.7 Dashboard
 
@@ -356,7 +437,9 @@ The dashboard has three tabs.
 - sustained posture deviations by type, including the episode happening
   now;
 - prompts and how the user responded;
-- a 0–10 comfort check-in for neck, back and eyes;
+- an optional 0–10 comfort check-in for neck, upper back, lower back and
+  eyes; each area can be left unanswered, and a note suggests seeing a
+  clinician at 7 or above (Settings → General turns it off);
 - a timeline.
 
 **Trends:** 7, 14 or 30 days of the same measures, drawn with Swift Charts.
@@ -364,7 +447,10 @@ The dashboard has three tabs.
 **Insights:**
 - what personalization changed and why;
 - recurring patterns;
-- comfort over time, shown without claiming cause and effect.
+- comfort over time per area, with days of workstation changes and
+  recalibration marked on the chart, shown without claiming cause and
+  effect;
+- which issues came up often in short bouts, and what that means.
 
 Every metric has a plain definition, and there is no posture score.
 
@@ -497,9 +583,10 @@ to the user. Please look for more of the same.
 - **No Focus or meeting state.** macOS doesn't expose them. Sway treats
   another app using the mic or camera as a likely call. It can't tell
   dictation from a call, or detect screen sharing without the mic.
-- **Calibration goes stale silently.** Estimates are relative to one
-  calibration. Moving the laptop, monitor or chair invalidates them, and
-  Sway can't detect that except when the camera changes.
+- **Calibration staleness is caught only when it's large.** A moved
+  laptop, monitor or chair is noticed after 10 min only when the face sits
+  far to the side or at a very different size. A small move (a few cm up
+  or down) still shifts the estimates without warning.
 - **Head-down without the reference is ambiguous.** Without the "look at
   the keyboard" step, head-down relies on vertical face position. That
   also changes when the user slouches down in the chair.
@@ -519,15 +606,14 @@ to the user. Please look for more of the same.
 2. **Visibility.** Find other places where Sway is working but looks idle,
    or idle but looks working: holds, budgets, back-off, low confidence,
    the camera off while away.
-3. **Clicking the notification body** always opens a routine
-   (`NotificationService.swift`: `UNNotificationDefaultActionIdentifier`
-   maps to `.startRoutine`). For "This keeps coming back" that opens a
-   desk routine, not the setup assistant the text points to. That looks
-   like a bug; confirm it and say whether body clicks should follow the
-   reminder's main action.
-4. **Notification levels.** Posture reminders are labelled "gentle"
-   (level 2) but carry action buttons like "actionable" (level 3)
-   reminders. Is the four-level model real in the UI, or only in the code?
+3. **Short repeated bouts.** The frequent-pattern detector
+   (`FrequentPatterns.swift`) is meant to catch "leans for 4 minutes, sits
+   back, repeats all day" without flagging ordinary movement. Are its
+   limits (4 bouts of 30 s+, 35% of 30+ observed minutes in an hour) too
+   strict or too loose? It never sends a notification by itself.
+4. **Calibration health.** Can ordinary use (a second monitor, sitting
+   far back, a standing desk) look like a moved camera and pause posture
+   warnings? Can a real move go unnoticed (see §7)?
 5. **False positives.** Watch for:
    - a lean caused by a reading-distance change, such as a larger font or
      a different window;
@@ -535,8 +621,10 @@ to the user. Please look for more of the same.
    - stillness during focused reading.
 
    Do the gates (yaw 28°, confidence 0.6, 60% reliability) cover these?
-6. **Personalization and back-off.** Can the rules combine so a real,
-   repeated issue goes silent for good? What brings it back?
+6. **Personalization and back-off.** Silencing now lasts only the rest
+   of the day, and long-session reminders ignore budgets and silencing.
+   Can the rules still combine so a real, repeated issue goes quiet for
+   good?
 7. **Sleep, clock and relaunch edges** in `ActivityTracker` and
    `AppModel`, such as state restored after a crash mid-episode or mid
    guided break.

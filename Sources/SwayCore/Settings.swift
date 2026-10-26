@@ -101,7 +101,7 @@ public struct CoachSettings: Codable, Equatable, Sendable {
         s.maxNotificationsPerHour = min(max(s.maxNotificationsPerHour, 1), 12)
         s.maxNotificationsPerDay = min(max(s.maxNotificationsPerDay, 1), 60)
         s.minSpacingBetweenNotifications = s.minSpacingBetweenNotifications.clamped(60, 60 * 60)
-        s.sampleInterval = s.sampleInterval.clamped(0.5, 30)
+        s.sampleInterval = s.sampleInterval.clamped(0.5, 8)   // the slowest choice offered
         s.minFaceConfidence = s.minFaceConfidence.clamped(0.3, 0.95)
         s.retentionDays = min(max(s.retentionDays, 7), 3650)
         for issue in [PostureIssue.headDown, .forwardLean, .lateralTilt, .shoulderAsymmetry] {

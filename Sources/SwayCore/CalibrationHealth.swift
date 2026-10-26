@@ -27,7 +27,8 @@ public struct CalibrationHealthMonitor: Codable, Equatable, Sendable {
     static let clearWindow: TimeInterval = 3 * 60
     static let clearMinObserved: TimeInterval = 60
     static let clearShare = 0.3
-    static let maxStep: TimeInterval = 10
+    /// Longer than any frame interval in use (8 s, doubled on battery).
+    static let maxStep: TimeInterval = 20
 
     private var seconds: [Int: Minute] = [:]   // keyed by 10-second slot
     private var lastAt: Date?

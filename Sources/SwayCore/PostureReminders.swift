@@ -18,21 +18,26 @@ public enum PostureReminders {
     /// 5 min before it until 5 min after it fell due. An ignored break stays
     /// due until a break is taken, so yielding to "a break is due" alone
     /// would silence posture reminders for as long as breaks are ignored.
+    ///
+    /// With short break intervals the window shrinks (a fifth of the
+    /// movement-break interval), so a break is never always "soon".
     public static func candidates(active: [ActiveIssue], setupIssues: Set<PostureIssue>, breakDueAt: Date?, nextBreakAt: Date?, now: Date, settings: CoachSettings) -> [DueReminder] {
         var out: [DueReminder] = []
-        let breakSoon = (breakDueAt.map { now.timeIntervalSince($0) < yieldToBreak } ?? false)
-            || (nextBreakAt.map { $0 > now && $0.timeIntervalSince(now) < yieldToBreak } ?? false)
-        // Once the user has moved back, the reminder is over: it leaves the
-        // menu bar at once and any notification is removed.
-        for a in active where !a.easing {
+        let window = min(yieldToBreak, settings.microBreakInterval / 5)
+        let breakSoon = (breakDueAt.map { now.timeIntervalSince($0) < window } ?? false)
+            || (nextBreakAt.map { $0 > now && $0.timeIntervalSince(now) < window } ?? false)
+        for a in active {
             let t = settings.thresholds(for: a.issue)
             let detectedAt = a.since.addingTimeInterval(t.minDuration)
             let notifyAt = detectedAt.addingTimeInterval(settings.postureNotifyAfter)
             // Menu bar only while it's new, while the user has already moved
             // back (it's about to end), when a break is about to cover it, or
             // when it keeps recurring (the setup suggestion speaks instead).
+            // Little movement is always worth a nudge to move, so a pattern
+            // of it adds the setup suggestion without demoting the reminder.
+            let demoted = setupIssues.contains(a.issue) && a.issue != .staticPosture
             let note: String?
-            if setupIssues.contains(a.issue) {
+            if demoted {
                 note = "This keeps coming back today, so Sway suggests a setup change instead of repeating it."
             } else if breakSoon {
                 note = "A break is due soon and covers this."
@@ -42,8 +47,12 @@ public enum PostureReminders {
                 note = nil
             }
             let text = Self.text(a.issue, lasting: now.timeIntervalSince(a.since))
-            out.append(DueReminder(kind: ReminderKind(a.issue), dueAt: detectedAt, instanceID: "\(a.issue.rawValue)@\(Int(a.since.timeIntervalSince1970))",
-                                   level: note == nil ? .notify : .menu, title: text.title, body: text.body, priority: 60, note: note))
+            var r = DueReminder(kind: ReminderKind(a.issue), dueAt: detectedAt, instanceID: "\(a.issue.rawValue)@\(Int(a.since.timeIntervalSince1970))",
+                                level: note == nil ? .notify : .menu, title: text.title, body: text.body, priority: 60, note: note)
+            // Once the user has moved back, nothing new is sent or shown; a
+            // notification already on screen goes when the episode ends.
+            r.standby = a.easing
+            out.append(r)
         }
         for issue in setupIssues.sorted(by: { $0.rawValue < $1.rawValue }) {
             out.append(DueReminder(kind: .workstationReview, dueAt: now, instanceID: "review-\(issue.rawValue)-\(DayKey.key(now))",

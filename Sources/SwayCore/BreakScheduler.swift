@@ -14,6 +14,10 @@ public struct DueReminder: Equatable, Sendable {
     public var priority: Int
     /// For a menu-only reminder: why it isn't a notification (yet).
     public var note: String?
+    /// The user has just moved back: a notification already on screen stays
+    /// until the episode really ends (a brief glance shouldn't remove it for
+    /// good), but nothing new is sent or shown.
+    public var standby = false
 
     public init(kind: ReminderKind, dueAt: Date, instanceID: String, level: InterventionLevel, title: String, body: String, priority: Int, note: String? = nil) {
         self.kind = kind

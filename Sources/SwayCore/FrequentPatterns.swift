@@ -74,7 +74,12 @@ public struct FrequentPatternDetector: Codable, Equatable, Sendable {
     public static let issues: [PostureIssue] = [.headDown, .forwardLean, .staticPosture]
     static let dipTolerance: TimeInterval = 10
     static let maxGap: TimeInterval = 45
-    static let maxStep: TimeInterval = 10
+    /// Longer than any frame interval in use (8 s, doubled on battery), so
+    /// observed time isn't undercounted at slow sampling; shorter than a gap.
+    static let maxStep: TimeInterval = 20
+    /// A still stretch must come in at least this many separate bouts to
+    /// count: one long still stretch is the sustained detector's job.
+    static let minStillBouts = 2
 
     private var tracks: [PostureIssue: Track] = [:]
 
@@ -116,10 +121,15 @@ public struct FrequentPatternDetector: Codable, Equatable, Sendable {
 
     private mutating func close(_ tr: inout Track, end: Date, settings: FrequentPatternSettings) {
         defer { tr.boutStart = nil; tr.lastOver = nil }
-        guard let start = tr.boutStart else { return }
-        let length = end.timeIntervalSince(start)
-        guard length >= settings.minBout else { return }
-        tr.minutes[Self.minute(end), default: Minute()].over += length
+        guard let start = tr.boutStart, end.timeIntervalSince(start) >= settings.minBout else { return }
+        // Spread over the minutes it covered, so a bout that began before
+        // the window counts only its part inside it.
+        var t = start
+        while t < end {
+            let next = min(end, Date(timeIntervalSince1970: Double(Self.minute(t) + 1) * 60))
+            tr.minutes[Self.minute(t), default: Minute()].over += next.timeIntervalSince(t)
+            t = next
+        }
         tr.minutes[Self.minute(end), default: Minute()].bouts += 1
     }
 
@@ -135,13 +145,14 @@ public struct FrequentPatternDetector: Codable, Equatable, Sendable {
             bouts += v.bouts
         }
         if let start = tr.boutStart, let last = tr.lastOver, last.timeIntervalSince(start) >= settings.minBout {
-            over += last.timeIntervalSince(start)
+            let windowStart = Date(timeIntervalSince1970: Double(from + 1) * 60)
+            over += max(0, last.timeIntervalSince(max(start, windowStart)))
             bouts += 1
         }
         guard observed >= settings.minObserved else { return nil }
         let share = min(1, over / observed)
         let flagged = issue == .staticPosture
-            ? share >= settings.stillShare
+            ? share >= settings.stillShare && bouts >= Self.minStillBouts
             : share >= settings.minShare && bouts >= settings.minBouts
         return flagged ? FrequentFlag(at: now, share: share, bouts: bouts, observedMinutes: observed / 60) : nil
     }

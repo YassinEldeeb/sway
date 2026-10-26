@@ -94,6 +94,35 @@ let patternTests: [TestCase] = [
         expect(!run.startedIssues().contains(.staticPosture), "never 45 min in a row")
         expect(run.engine.frequentFlags(now: run.synth.t, settings: run.settings)[.staticPosture] != nil)
     },
+    TestCase(name: "one long still stretch is the sustained reminder's job, not a recurring pattern") {
+        var run = PostureRun()
+        run.feed(60) { $0.obs(jitter: moving) }
+        run.feed(36 * 60) { $0.obs() }
+        expect(run.engine.frequentFlags(now: run.synth.t, settings: run.settings)[.staticPosture] == nil)
+    },
+    TestCase(name: "slow sampling (8 s, doubled on battery) still finds repeated leans") {
+        var d = FrequentPatternDetector()
+        let s = FrequentPatternSettings()
+        var t = t0
+        for _ in 0..<6 {
+            for _ in 0..<15 { d.update(.forwardLean, over: true, at: t, settings: s); t += 16 }    // 4 min
+            for _ in 0..<23 { d.update(.forwardLean, over: false, at: t, settings: s); t += 16 }   // ~6 min
+        }
+        let f = d.assess(.forwardLean, now: t, settings: s)
+        expect(f != nil)
+        expect((f?.observedMinutes ?? 0) > 55, "observed time isn't undercounted: \(f?.observedMinutes ?? 0)")
+        expect((f?.share ?? 1) < 0.45, "and the share isn't inflated: \(f?.share ?? 0)")
+    },
+    TestCase(name: "a bout that began before the window counts only its part inside it") {
+        var d = FrequentPatternDetector()
+        var s = FrequentPatternSettings()
+        s.minBouts = 1
+        var t = t0
+        for _ in 0..<(50 * 30) { d.update(.forwardLean, over: true, at: t, settings: s); t += 2 }    // 50 min
+        for _ in 0..<(40 * 30) { d.update(.forwardLean, over: false, at: t, settings: s); t += 2 }   // 40 min
+        // The last hour holds 20 min of the lean: a third, under the 35% line.
+        expect(d.assess(.forwardLean, now: t, settings: s) == nil)
+    },
     TestCase(name: "a recurring issue is recorded once a day") {
         var ledger = Ledger()
         let f = FrequentFlag(at: t0, share: 0.4, bouts: 6, observedMinutes: 55)

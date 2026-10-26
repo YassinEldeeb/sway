@@ -82,14 +82,31 @@ let notificationTests: [TestCase] = [
         c.active = [posture(.forwardLean, since: since)]
         c.work(8 * 60 + 10)
         expectEqual(c.count(.forwardLean), 1, "sent at about 8 min")
-        // Sat back: the episode eases, then ends.
+        // Sat back: the episode eases, then ends about 20 s later.
         c.active = [posture(.forwardLean, since: since, easing: true)]
-        c.evaluate()
-        expect(c.removed.contains { $0.1 == .forwardLean }, "removed as soon as the user moved back")
+        c.work(15)
+        expect(!c.removed.contains { $0.1 == .forwardLean }, "a brief move back isn't the end yet")
         c.active = []
+        c.evaluate()
+        expect(c.removed.contains { $0.1 == .forwardLean }, "removed as soon as the episode ends")
         c.work(60)
         expectEqual(c.count(.forwardLean), 1)
         expect(c.engine.posted[.forwardLean] == nil)
+    },
+    TestCase(name: "a brief glance up doesn't remove a posture notification for good") {
+        var c = Coach()
+        c.work(60)
+        let since = c.sim.now
+        c.active = [posture(.forwardLean, since: since)]
+        c.work(8 * 60 + 10)
+        expectEqual(c.count(.forwardLean), 1)
+        c.active = [posture(.forwardLean, since: since, easing: true)]
+        c.work(10)
+        c.active = [posture(.forwardLean, since: since)]   // back down: same episode
+        c.work(60)
+        expect(c.removed.isEmpty, "still on screen")
+        expectEqual(c.engine.posted[.forwardLean], "forwardLean@\(Int(since.timeIntervalSince1970))")
+        expectEqual(c.count(.forwardLean), 1, "and not sent twice")
     },
     TestCase(name: "a posture deviation the user already corrected never becomes a notification") {
         var c = Coach()
@@ -216,6 +233,13 @@ let notificationTests: [TestCase] = [
                     "a break ignored for a while no longer holds posture back")
         expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at - 6 * 60, now: at, settings: s).first?.level, .notify,
                     "a next-break time already past doesn't either")
+        var short = s
+        short.microBreakInterval = 5 * 60
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at + 2 * 60, now: at, settings: short).first?.level, .notify,
+                    "with 5-min breaks the window shrinks to 1 min, so posture can still notify")
+        let still = posture(.staticPosture, since: t0 - 40 * 60)
+        expectEqual(PostureReminders.candidates(active: [still], setupIssues: [.staticPosture], breakDueAt: nil, nextBreakAt: nil, now: at, settings: s).map(\.level), [.notify, .setup],
+                    "a pattern of little movement adds the suggestion but keeps the nudge to move")
         expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at + 4 * 60, now: at, settings: s).first?.level, .menu)
         expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at + 20 * 60, now: at, settings: s).first?.level, .notify)
         let early = PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: nil, now: t0 + 6 * 60, settings: s).first
