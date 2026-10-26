@@ -84,9 +84,12 @@ This run used the bundled release binary with demo data, the camera off, the
 menu-bar item live and the 5 s tick running. It was measured with `ps` CPU
 time and `footprint` over 300 s, on 2026-10-26:
 
-- **CPU: 0.127% of one core on average** (0.38 s of CPU in 300 s).
-- **Memory: 21 MB physical footprint.** Resident size stayed at 69–79 MB,
-  sampled every 30 s, with no growth.
+- First build: **0.127% of one core** on average (0.38 s of CPU in 300 s),
+  21 MB physical footprint.
+- After the review fixes (App Nap opt-out, a lock and display check every
+  tick): **0.157% of one core** (0.47 s in 300 s), **20 MB footprint**.
+- Resident size stayed at 69–79 MB, sampled every 30 s, with no growth, in
+  both runs.
 
 ## Review fixes
 
