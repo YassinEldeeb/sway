@@ -19,7 +19,7 @@ struct SwayApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    static let toolingFlags = ["--benchmark", "--seed-demo-data", "--snapshots", "--render-icon"]
+    static let toolingFlags = ["--benchmark", "--seed-demo-data", "--snapshots", "--render-icon", "--login-item"]
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         // Set the notification delegate before launch finishes: when a click
@@ -41,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let i = args.firstIndex(of: "--snapshots"), i + 1 < args.count {
             Snapshots.render(to: URL(fileURLWithPath: args[i + 1], isDirectory: true))
+            exit(0)
+        }
+        if let i = args.firstIndex(of: "--login-item"), i + 1 < args.count {
+            LaunchAtLogin.command(args[i + 1])
             exit(0)
         }
         if let i = args.firstIndex(of: "--render-icon"), i + 1 < args.count {

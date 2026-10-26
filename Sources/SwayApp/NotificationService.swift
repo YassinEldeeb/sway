@@ -164,6 +164,28 @@ enum LaunchAtLogin {
 
     static var needsApproval: Bool { status == .requiresApproval }
 
+    static func describe(_ s: SMAppService.Status) -> String {
+        switch s {
+        case .enabled: return "enabled"
+        case .notRegistered: return "not registered"
+        case .requiresApproval: return "requires approval in System Settings"
+        case .notFound: return "not found"
+        @unknown default: return "unknown"
+        }
+    }
+
+    /// Developer check: `status` prints the state; `cycle` turns launch at
+    /// login on, reports, and puts it back the way it was.
+    static func command(_ what: String) {
+        let before = status
+        print("launch at login: \(describe(before))")
+        guard what == "cycle" else { return }
+        print("turn on: \(set(true) ?? "ok") -> \(describe(status))")
+        if before != .enabled {
+            print("restore: \(set(false) ?? "ok") -> \(describe(status))")
+        }
+    }
+
     /// Returns an error message, or nil on success.
     static func set(_ enabled: Bool) -> String? {
         guard Bundle.main.bundleURL.pathExtension == "app" else {
