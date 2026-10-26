@@ -40,7 +40,7 @@ public enum PostureReminders {
         }
         for issue in setupIssues.sorted(by: { $0.rawValue < $1.rawValue }) {
             out.append(DueReminder(kind: .workstationReview, dueAt: now, instanceID: "review-\(issue.rawValue)-\(DayKey.key(now))",
-                                   level: .setup, title: "This keeps coming back", body: PatternDetector.advice(for: issue), priority: 30))
+                                   level: .setup, title: "\(issue.title) keeps coming back", body: PatternDetector.advice(for: issue), priority: 30))
         }
         return out
     }

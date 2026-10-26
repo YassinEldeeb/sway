@@ -13,7 +13,12 @@ if [ -z "${DEVELOPER_DIR:-}" ] && ! xcrun swift --version >/dev/null 2>&1; then
   export DEVELOPER_DIR=/Library/Developer/CommandLineTools
 fi
 
-swift build -c release --product Sway 2>&1 | grep -v -E "PlatformPath|could not determine XCTest" || true
+# Fail on a compile error: the old binary must never be packaged as new.
+set +o pipefail
+swift build -c release --product Sway 2>&1 | grep -v -E "PlatformPath|could not determine XCTest"
+status=${PIPESTATUS[0]}
+set -o pipefail
+[ "$status" -eq 0 ] || { echo "build failed (swift build exit $status)"; exit 1; }
 BIN="$(swift build -c release --product Sway --show-bin-path 2>/dev/null)/Sway"
 [ -x "$BIN" ] || { echo "build failed: $BIN missing"; exit 1; }
 

@@ -10,17 +10,22 @@ public struct InterruptionContext: Equatable, Sendable {
     /// deliberate full-screen focus).
     public var fullScreenAppInFront = false
     public var pausedUntil: Date?
+    /// macOS lets Sway show notifications. When it doesn't, a "sent"
+    /// reminder would be invisible, so reminders stay in the menu bar.
+    public var systemNotificationsAllowed = true
 
-    public init(micOrCameraInUseByOthers: Bool = false, fullScreenAppInFront: Bool = false, pausedUntil: Date? = nil) {
+    public init(micOrCameraInUseByOthers: Bool = false, fullScreenAppInFront: Bool = false, pausedUntil: Date? = nil, systemNotificationsAllowed: Bool = true) {
         self.micOrCameraInUseByOthers = micOrCameraInUseByOthers
         self.fullScreenAppInFront = fullScreenAppInFront
         self.pausedUntil = pausedUntil
+        self.systemNotificationsAllowed = systemNotificationsAllowed
     }
 }
 
 public enum HoldReason: Equatable, Sendable {
     case paused(until: Date)
     case notificationsOff
+    case systemNotificationsOff
     case quietHours
     case likelyInCall
     case fullScreen
@@ -29,6 +34,7 @@ public enum HoldReason: Equatable, Sendable {
         switch self {
         case .paused(let until): return "Paused until \(Clock.time(until))"
         case .notificationsOff: return "Notifications are off in Sway's settings"
+        case .systemNotificationsOff: return "macOS isn't letting Sway show notifications, so reminders appear here only"
         case .quietHours: return "Quiet hours"
         case .likelyInCall: return "Held while another app uses the mic or camera"
         case .fullScreen: return "Held while a full-screen app is in front"
@@ -37,7 +43,7 @@ public enum HoldReason: Equatable, Sendable {
 
     /// After these end, Sway waits a little before speaking, so the end of a
     /// call doesn't bring a burst of reminders.
-    public var settles: Bool { self != .notificationsOff }
+    public var settles: Bool { self != .notificationsOff && self != .systemNotificationsOff }
 }
 
 /// Why a due reminder wasn't sent this time. Every case has a plain label.
@@ -207,6 +213,7 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     public func holdReason(now: Date, context: InterruptionContext, settings: CoachSettings) -> HoldReason? {
         if let until = context.pausedUntil, until > now { return .paused(until: until) }
         if !settings.notificationsEnabled { return .notificationsOff }
+        if !context.systemNotificationsAllowed { return .systemNotificationsOff }
         if settings.isQuietHours(at: now) { return .quietHours }
         if settings.holdDuringCalls, context.micOrCameraInUseByOthers { return .likelyInCall }
         if settings.holdDuringFullScreen, context.fullScreenAppInFront { return .fullScreen }

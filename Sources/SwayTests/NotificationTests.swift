@@ -133,6 +133,17 @@ let notificationTests: [TestCase] = [
         expectEqual(c.posted.first?.1.kind, .longBreak, "the most important one")
         expect((c.posted.first?.0 ?? ended).timeIntervalSince(ended) >= InterventionEngine.settleAfterHold)
     },
+    TestCase(name: "while macOS blocks notifications, nothing counts as sent and reminders stay in the menu") {
+        var c = Coach()
+        c.context.systemNotificationsAllowed = false
+        c.work(26 * 60)
+        expectEqual(c.posted.count, 0, "an invisible notification is never 'sent'")
+        expectEqual(c.last.hold, .systemNotificationsOff)
+        expectEqual(c.last.statuses.first?.reminder.kind, .microBreak, "still shown in the menu")
+        c.context.systemNotificationsAllowed = true
+        c.work(10)
+        expectEqual(c.posted.count, 1, "allowed again: sent at once, no settling wait (the user was never in a call)")
+    },
     TestCase(name: "every waiting reminder says why, with when it can go out") {
         var e = InterventionEngine()
         var s = CoachSettings()

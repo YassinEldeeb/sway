@@ -4,15 +4,16 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject var model: AppModel
+    @State var tab = 0
 
     var body: some View {
-        TabView {
-            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
-            BreakSettings().tabItem { Label("Breaks", systemImage: "figure.walk") }
-            NotificationSettings().tabItem { Label("Notifications", systemImage: "bell") }
-            PostureSettings().tabItem { Label("Posture", systemImage: "camera") }
-            PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }
-            DiagnosticsView().tabItem { Label("Diagnostics", systemImage: "gauge.with.dots.needle.33percent") }
+        TabView(selection: $tab) {
+            GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }.tag(0)
+            BreakSettings().tabItem { Label("Breaks", systemImage: "figure.walk") }.tag(1)
+            NotificationSettings().tabItem { Label("Notifications", systemImage: "bell") }.tag(2)
+            PostureSettings().tabItem { Label("Posture", systemImage: "camera") }.tag(3)
+            PrivacySettings().tabItem { Label("Privacy", systemImage: "hand.raised") }.tag(4)
+            DiagnosticsView().tabItem { Label("Diagnostics", systemImage: "gauge.with.dots.needle.33percent") }.tag(5)
         }
         .padding(.top, 28)
         .frame(minWidth: 600, minHeight: 520)

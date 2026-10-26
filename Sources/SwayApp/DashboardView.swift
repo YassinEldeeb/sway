@@ -355,7 +355,7 @@ private struct TrendsView: View {
                     .chartLegend(position: .bottom)
                 }
             }
-            chartCard("Comfort check-ins (0–10, lower is better) · dashed lines mark workstation changes") {
+            chartCard("Comfort check-ins (0–10, lower is better), with workstation changes marked") {
                 let points = history.compactMap { d in d.comfort.map { (d.day, $0) } }
                 let changes = history.filter { d in d.log.contains { Self.isWorkstationChange($0.text) } }.map(\.day)
                 if points.isEmpty {
@@ -365,17 +365,20 @@ private struct TrendsView: View {
                     Chart {
                         ForEach(changes, id: \.self) { day in
                             RuleMark(x: .value("Day", date(day), unit: .day))
-                                .foregroundStyle(Color.secondary.opacity(0.5))
-                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                                .foregroundStyle(Theme.accent.opacity(0.55))
+                                .lineStyle(StrokeStyle(lineWidth: 2))
+                                .annotation(position: .trailing, alignment: .top, spacing: 3) {
+                                    Text("setup change").font(.system(size: 9.5)).foregroundStyle(Theme.accent)
+                                }
                         }
-                        ForEach(Self.comfortSeries, id: \.0) { name, value in
+                        ForEach(Self.series(in: points.map(\.1)), id: \.0) { name, value in
                             ForEach(points.filter { value($0.1) != nil }, id: \.0) { day, c in
                                 LineMark(x: .value("Day", date(day), unit: .day), y: .value("Score", value(c) ?? 0), series: .value("Area", name))
                                     .foregroundStyle(by: .value("Area", name)).symbol(.circle)
                             }
                         }
                     }
-                    .chartForegroundStyleScale(domain: Self.comfortSeries.map(\.0), range: [Theme.warm, Theme.accent, Color.purple.opacity(0.65), Color.blue.opacity(0.7), Color.gray.opacity(0.6)])
+                    .chartForegroundStyleScale(domain: Self.series(in: points.map(\.1)).map(\.0), range: Self.series(in: points.map(\.1)).map { Self.comfortColor[$0.0] ?? .gray })
                     .chartXScale(domain: date(history.first?.day ?? "")...date(history.last?.day ?? ""))
                     .chartXAxis { dayAxis }
                     .chartYScale(domain: 0...10)
@@ -390,6 +393,15 @@ private struct TrendsView: View {
     /// Areas over time; "Back" holds check-ins from before the split.
     static let comfortSeries: [(String, (ComfortCheckIn) -> Int?)] = [
         ("Neck", { $0.neck }), ("Upper back", { $0.upperBack }), ("Lower back", { $0.lowerBack }), ("Eye fatigue", { $0.eyes }), ("Back", { $0.back }),
+    ]
+
+    /// Only areas that have at least one answer in the period.
+    static func series(in checks: [ComfortCheckIn]) -> [(String, (ComfortCheckIn) -> Int?)] {
+        comfortSeries.filter { s in checks.contains { s.1($0) != nil } }
+    }
+
+    static let comfortColor: [String: Color] = [
+        "Neck": Theme.warm, "Upper back": Theme.accent, "Lower back": Color.purple.opacity(0.65), "Eye fatigue": Color.blue.opacity(0.7), "Back": Color.gray.opacity(0.6),
     ]
 
     static func isWorkstationChange(_ text: String) -> Bool {

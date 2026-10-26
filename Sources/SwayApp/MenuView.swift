@@ -17,17 +17,18 @@ struct MenuView: View {
                 attentionCard(a)
             }
             if let hold = model.decision.hold {
-                Label(hold.label, systemImage: "bell.slash")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-            }
-            if model.notifications.isAvailable, model.notifications.authorization == .denied, model.settings.notificationsEnabled {
                 HStack(spacing: 6) {
-                    Label("Notifications are off in System Settings; reminders appear here only", systemImage: "bell.slash")
-                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                    Label(hold.label, systemImage: "bell.slash")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                    Spacer()
-                    Button("Open") { SystemSettingsLink.open(.notifications) }.buttonStyle(PillButtonStyle())
+                    if hold == .systemNotificationsOff, model.notifications.isAvailable {
+                        Spacer()
+                        Button("Allow") {
+                            if model.notifications.authorization == .notDetermined { model.notifications.requestAuthorization() } else { SystemSettingsLink.open(.notifications) }
+                        }
+                        .buttonStyle(PillButtonStyle())
+                    }
                 }
             }
             postureRow
@@ -126,6 +127,7 @@ struct MenuView: View {
                     Image(systemName: r.kind.isBreak ? "figure.walk" : (r.kind == .workstationReview ? "wrench.adjustable" : (r.kind == .eyeRest ? "eye" : "person.fill")))
                         .foregroundStyle(Theme.warm)
                     Text(r.title).font(.system(size: 13, weight: .semibold))
+                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
                 Text(r.body).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 6) {
@@ -267,7 +269,7 @@ struct MenuView: View {
         case .unauthorized:
             return ("Camera access is off", nil, Theme.warm, .openCameraSettings)
         case .off:
-            return ("Camera off", "It starts within 30 s.", nil, .toggle)
+            return ("Camera off", model.wantsCamera ? "Starting shortly." : nil, nil, .toggle)
         }
     }
 

@@ -160,6 +160,7 @@ final class AppModel: ObservableObject {
         appNapToken = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep], reason: "Tracking activity for break reminders")
         reloadPastDays()
         notifications.setUp()   // idempotent; normally already done before launch finished
+        if settings.onboardingComplete, settings.notificationsEnabled { notifications.askIfUndetermined() }
         recomputePersonalization()
         recomputePatterns()
         tick()
@@ -276,6 +277,7 @@ final class AppModel: ObservableObject {
                                                       nextBreakAt: nextBreak?.at, now: now, settings: settings)
         }
         context.pausedUntil = runtime.pausedUntil
+        context.systemNotificationsAllowed = notifications.canShow
         decision = runtime.engine.evaluate(candidates: candidates, now: now, context: context, settings: settings, adjustments: adjustments)
         // Never leave an obsolete notification on screen.
         for k in decision.expired { notifications.clear(k) }
@@ -312,7 +314,7 @@ final class AppModel: ObservableObject {
     /// (snapshots and other tooling).
     static let cameraBlocked = ProcessInfo.processInfo.environment["SWAY_NO_CAMERA"] != nil
 
-    private var wantsCamera: Bool {
+    var wantsCamera: Bool {
         if Self.cameraBlocked { return false }
         if calibrationSession != nil { return !suspended }
         guard settings.cameraMonitoringEnabled, cameraAuthorization == .authorized, !suspended, !isPaused,

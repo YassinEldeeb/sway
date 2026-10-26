@@ -74,6 +74,27 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         }
     }
 
+    /// Whether a posted notification would actually appear.
+    var canShow: Bool {
+        isAvailable && (authorization == .authorized || authorization == .provisional)
+    }
+
+    private var askedThisLaunch = false
+
+    /// Coaching is on but macOS has no answer for Sway yet (never asked,
+    /// or reset by a reinstall): ask once per launch.
+    func askIfUndetermined() {
+        guard let center, !askedThisLaunch else { return }
+        center.getNotificationSettings { s in
+            guard s.authorizationStatus == .notDetermined else { return }
+            Task { @MainActor in
+                guard !self.askedThisLaunch else { return }
+                self.askedThisLaunch = true
+                self.requestAuthorization()
+            }
+        }
+    }
+
     func requestAuthorization(_ done: ((Bool) -> Void)? = nil) {
         guard let center else { done?(false); return }
         center.requestAuthorization(options: [.alert, .sound]) { ok, _ in

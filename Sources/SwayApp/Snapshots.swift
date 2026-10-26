@@ -37,7 +37,7 @@ enum Snapshots {
                     .lateralTilt: Double.random(in: 0...8, using: &rng) * 60,
                     .staticPosture: Double.random(in: 30...90, using: &rng) * 60 * (1.1 - trend * 0.5),
                 ]
-                r.postureEpisodes = [.headDown: Int.random(in: 1...4, using: &rng), .forwardLean: Int.random(in: 0...2, using: &rng), .staticPosture: 1]
+                r.postureEpisodes = [.headDown: Int.random(in: 1...4, using: &rng), .forwardLean: Int.random(in: 1...2, using: &rng), .lateralTilt: 1, .staticPosture: 1]
                 var micro = ResponseCounts(); micro.prompts = 5; micro.accepted = 3; micro.snoozed = 1; micro.dismissed = 1
                 var long = ResponseCounts(); long.prompts = 3; long.accepted = 2; long.dismissed = 1
                 var head = ResponseCounts(); head.prompts = 2; head.accepted = 1; head.helpful = 1
@@ -47,6 +47,7 @@ enum Snapshots {
                     r.comfort = ComfortCheckIn(neck: max(1, 6 - (14 - offset) / 3), upperBack: max(1, 4 - (14 - offset) / 5), lowerBack: offset % 4 == 0 ? 2 : nil, eyes: Int.random(in: 2...5, using: &rng), at: day)
                 }
             }
+            if offset == 9 { r.log.append(LogEntry(at: day, text: "Workstation: monitor height set")) }
             if offset == 0 {
                 r.comfort = nil
                 r.log = [LogEntry(at: now.addingTimeInterval(-7200), text: "Break (6 min, away)"), LogEntry(at: now.addingTimeInterval(-3000), text: "Head tilted down for 9 min"), LogEntry(at: now.addingTimeInterval(-1200), text: "Reminder: Movement break")]
@@ -67,6 +68,18 @@ enum Snapshots {
         }
         state.setupChecklist = ["monitor-height": "done", "viewing-distance": "done", "screen-angle": "todo", "chair-height": "done"]
         state.setupMeasurements = ["viewingDistanceCm": 58, "screenTop": 3, "laptopOnly": 0]
+        let log: [(Double, ReminderKind?, String)] = [
+            (-5400, .microBreak, "Movement break: Sent as a notification"),
+            (-5300, .microBreak, "Movement break: you acted on it"),
+            (-3900, nil, "Reminders held: Held while another app uses the mic or camera"),
+            (-2100, nil, "Hold ended; reminders resume after a short pause"),
+            (-2050, .longBreak, "Time for a longer break: Giving you a moment after a hold ends"),
+            (-1920, .longBreak, "Time for a longer break: Sent as a notification"),
+            (-1500, .longBreak, "Longer break: notification removed because it no longer applies"),
+            (-600, .headDown, "Your head has been tilted downward for a while: A notification follows if this continues"),
+            (-420, .headDown, "Your head has been tilted downward for a while: no longer due"),
+        ]
+        for (dt, kind, text) in log { state.decisionLog.note(text, kind: kind, at: now.addingTimeInterval(dt)) }
         try? store.save(state)
         try? store.save(settings)
         print("Seeded demo data in \(store.directory.path)")
@@ -91,6 +104,8 @@ enum Snapshots {
             ("calibration", CGSize(width: 640, height: 640), AnyView(CalibrationView())),
             ("setup", CGSize(width: 780, height: 680), AnyView(SetupAssistantView())),
             ("settings", CGSize(width: 640, height: 600), AnyView(SettingsView())),
+            ("settings-posture", CGSize(width: 640, height: 900), AnyView(SettingsView(tab: 3))),
+            ("settings-diagnostics", CGSize(width: 640, height: 1300), AnyView(SettingsView(tab: 5))),
             ("onboarding", CGSize(width: 560, height: 560), AnyView(OnboardingView())),
         ]
         for (name, size, view) in shots {
