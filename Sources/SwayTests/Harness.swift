@@ -38,6 +38,7 @@ struct TestCase {
 }
 
 func runAll(_ suites: [(String, [TestCase])]) -> Int32 {
+    // Optional: only tests whose "suite / name" contains this text.
     let filter = CommandLine.arguments.dropFirst().first
     var passed = 0, failed = 0, checks = 0
     let started = Date()
@@ -63,6 +64,12 @@ func runAll(_ suites: [(String, [TestCase])]) -> Int32 {
         }
     }
     let ms = Int(Date().timeIntervalSince(started) * 1000)
+    if let filter, passed + failed == 0 {
+        // A filter that matches nothing is a mistake (e.g. a "# comment" an
+        // interactive zsh passed as arguments), never a green run.
+        print("No test name contains \"\(filter)\". Run with no arguments for all tests, or pass part of a test name.")
+        return 2
+    }
     print("\n\(passed) passed, \(failed) failed, \(checks) checks, \(ms) ms")
     return failed == 0 ? 0 : 1
 }

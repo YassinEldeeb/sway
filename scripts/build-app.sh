@@ -4,6 +4,7 @@
 #
 #   scripts/build-app.sh            build
 #   scripts/build-app.sh --install  also copy to /Applications (replaces it)
+#                                   and start it
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -47,7 +48,15 @@ echo "Built $APP ($(du -sh "$APP" | cut -f1))"
 
 if [ "${1:-}" = "--install" ]; then
   pkill -x Sway 2>/dev/null || true
+  # Wait for the old copy to quit: replacing or opening it while it shuts
+  # down makes `open` fail with error -600.
+  for _ in $(seq 1 50); do pgrep -x Sway >/dev/null || break; sleep 0.1; done
   rm -rf /Applications/Sway.app
   cp -R "$APP" /Applications/Sway.app
   echo "Installed /Applications/Sway.app"
+  for attempt in 1 2 3 4 5; do
+    if open /Applications/Sway.app 2>/dev/null; then echo "Started Sway"; break; fi
+    [ "$attempt" -eq 5 ] && { echo "Installed, but macOS didn't start it; run: open /Applications/Sway.app"; exit 1; }
+    sleep 1
+  done
 fi

@@ -29,8 +29,7 @@ release.
 Build and launch first:
 
 ```bash
-scripts/build-app.sh --install   # builds and copies to /Applications
-open /Applications/Sway.app
+scripts/build-app.sh --install
 ```
 
 ## 1. First launch and menu bar

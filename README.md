@@ -17,19 +17,25 @@ a qualified clinician.
 
 ## Build and run
 
+Build, copy to `/Applications` and start it (replaces a running copy):
+
 ```bash
-scripts/build-app.sh            # → build/Sway.app (release, ad-hoc signed, hardened runtime)
-open build/Sway.app             # or: scripts/build-app.sh --install  (copies to /Applications)
+scripts/build-app.sh --install
 ```
 
-Install to `/Applications` before enabling launch at login.
+`scripts/build-app.sh` alone builds `build/Sway.app` (release, ad-hoc signed,
+hardened runtime). Install to `/Applications` before enabling launch at
+login.
 
 Run the tests:
 
 ```bash
-swift build --product sway-tests && .build/debug/sway-tests     # 72 tests
-.build/debug/sway-tests posture                                 # filter by name
+swift build --product sway-tests && .build/debug/sway-tests
 ```
+
+To run only some tests, pass part of their name, e.g.
+`.build/debug/sway-tests posture`. A name that matches nothing is reported
+as an error, not as a passing run.
 
 If `xcodebuild` reports that the Xcode license hasn't been accepted, either
 run `sudo xcodebuild -license` once, or prefix commands with
