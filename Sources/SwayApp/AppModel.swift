@@ -588,6 +588,7 @@ final class AppModel: ObservableObject {
         runtime.tracker.beginGuidedBreak(at: t, until: end)
         guidedBreak = GuidedBreak(start: t, end: end)
         notifications.clearAll()
+        runtime.engine.forgetPosted()
     }
 
     func endGuidedBreak() {
@@ -634,6 +635,7 @@ final class AppModel: ObservableObject {
             runtime.pausedUntil = cal.date(bySettingHour: 6, minute: 0, second: 0, of: tomorrow)
         }
         notifications.clearAll()
+        runtime.engine.forgetPosted()
         camera.stop()
         stopPosture(status: .off)
         persist()
@@ -713,6 +715,7 @@ final class AppModel: ObservableObject {
         camera.stop()
         stopPosture(status: .notCalibrated)
         notifications.clearAll()
+        runtime.engine.forgetPosted()
         try? store.deleteAll()
         let store = self.store
         ledger = Ledger(loader: { store.loadDay($0) })

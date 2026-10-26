@@ -111,7 +111,8 @@ public enum RoutineLibrary {
         case .shoulderAsymmetry: return routine("shoulders-30")!
         case .staticPosture: return routine("desk-60")!
         case .eyeRest: return routine("eyes-30")!
-        case .longBreak, .longSession: return routine("walk-180")!
+        // "Start 1-min routine"; the 3-min option is the guided break.
+        case .longBreak, .longSession: return routine("stand-60")!
         case .microBreak, .workstationReview: return routine("desk-60")!
         }
     }

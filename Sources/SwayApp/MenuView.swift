@@ -247,7 +247,7 @@ struct MenuView: View {
         case .running:
             switch model.posture.status {
             case .calibrationSuspect:
-                return ("Calibration may be out of date", "You've looked very different to the camera for a while (moved screen, camera or chair?). Posture warnings are paused.", Theme.warm, .recalibrate)
+                return ("Calibration may be out of date", "You've looked very different to the camera for a while. If the screen, camera or chair moved, recalibrate; if you're only sitting differently, this clears by itself. Posture warnings are paused.", Theme.warm, .recalibrate)
             case .lowConfidence:
                 return ("Can't see you clearly · warnings paused", "Check the lighting and that only your face is in view.", .yellow, .toggle)
             case .searching:

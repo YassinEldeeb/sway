@@ -22,12 +22,14 @@ public struct DecisionLog: Codable, Equatable, Sendable {
     private var lastState: [String: String] = [:]
     private var lastKind: [String: ReminderKind] = [:]
     private var lastHold: String?
+    /// Whether that hold is followed by a settling pause.
+    private var lastHoldSettles = false
 
     public static let maxEntries = 200
 
     public init() {}
 
-    enum CodingKeys: String, CodingKey { case entries, lastState, lastKind, lastHold }
+    enum CodingKeys: String, CodingKey { case entries, lastState, lastKind, lastHold, lastHoldSettles }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -35,6 +37,7 @@ public struct DecisionLog: Codable, Equatable, Sendable {
         lastState = c.lenient([String: String].self, .lastState) ?? [:]
         lastKind = (c.lenient([String: Lossy<ReminderKind>].self, .lastKind) ?? [:]).compactMapValues(\.value)
         lastHold = c.lenient(String.self, .lastHold)
+        lastHoldSettles = c.lenient(Bool.self, .lastHoldSettles) ?? false
     }
 
     public mutating func record(_ d: InterventionDecision, now: Date) {
@@ -43,9 +46,10 @@ public struct DecisionLog: Codable, Equatable, Sendable {
             if let hold {
                 add(now, nil, "Reminders held: \(hold)")
             } else if lastHold != nil {
-                add(now, nil, "Hold ended; reminders resume after a short pause")
+                add(now, nil, lastHoldSettles ? "Hold ended; reminders resume after a short pause" : "Hold ended; reminders resume")
             }
             lastHold = hold
+            lastHoldSettles = d.hold?.settles ?? false
         }
         var seen = Set<String>()
         for s in d.statuses {

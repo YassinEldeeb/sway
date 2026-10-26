@@ -265,8 +265,12 @@ struct ComfortCheckInView: View {
                     HStack {
                         Button("Save") {
                             let v = { (a: ComfortCheckIn.Area) in values[a].map { Int($0) } }
-                            model.saveComfort(ComfortCheckIn(neck: v(.neck), upperBack: v(.upperBack), lowerBack: v(.lowerBack), eyes: v(.eyes),
-                                                             note: note.isEmpty ? nil : note, at: Date()))
+                            var c = ComfortCheckIn(neck: v(.neck), upperBack: v(.upperBack), lowerBack: v(.lowerBack), eyes: v(.eyes),
+                                                   note: note.isEmpty ? nil : note, at: Date())
+                            // A back score recorded before the split has no field
+                            // here; keep it unless the back is answered anew.
+                            if c.upperBack == nil, c.lowerBack == nil { c.back = model.today.comfort?.back }
+                            model.saveComfort(c)
                             editing = false
                         }
                         .buttonStyle(PillButtonStyle(prominent: true))

@@ -70,13 +70,26 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
         guard let center else { return }
         center.getNotificationSettings { s in
             let status = s.authorizationStatus
-            Task { @MainActor in self.authorization = status }
+            let banners = s.alertStyle != .none
+            Task { @MainActor in
+                self.authorization = status
+                self.showsBanners = banners
+                self.known = true
+            }
         }
     }
 
-    /// Whether a posted notification would actually appear.
+    /// Whether macOS has answered since launch. Until it has, Sway assumes
+    /// notifications work rather than flash a false "held" line.
+    private var known = false
+    private var showsBanners = true
+
+    /// Whether a posted notification would actually appear: allowed, and
+    /// with banners or alerts (style "None" only collects them silently).
     var canShow: Bool {
-        isAvailable && (authorization == .authorized || authorization == .provisional)
+        guard isAvailable else { return false }
+        guard known else { return true }
+        return (authorization == .authorized || authorization == .provisional) && showsBanners
     }
 
     private var askedThisLaunch = false

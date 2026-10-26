@@ -103,7 +103,7 @@ open /Applications/Sway.app
 
 ## 5b. Notifications (this release)
 - [ ] With notifications not yet allowed for Sway, the popover shows
-      "Reminders held: macOS isn't letting Sway show notifications" and an
+      "Reminders held: macOS isn't showing Sway's notifications" and an
       Allow button that opens System Settings → Notifications. Allow, and
       the line goes away within ~30 s.
 - [ ] Click the body of a movement-break notification: "Desk mobility

@@ -124,7 +124,11 @@ let storeTests: [TestCase] = [
         for c in RoutineCategory.allCases { expect(all.contains { $0.category == c }, "category \(c)") }
         for r in all { for s in r.steps { expect(!s.instruction.isEmpty && s.seconds > 0) } }
         expectEqual(Set(all.map(\.id)).count, all.count)
-        for k in ReminderKind.allCases { _ = RoutineLibrary.suggested(for: k) }
+        for k in ReminderKind.allCases {
+            // Behind "Start 1-min routine" on every notification.
+            let r = RoutineLibrary.suggested(for: k)
+            expect(r.seconds <= 75, "\(k) opens \(r.id), \(r.seconds) s")
+        }
     },
     TestCase(name: "an answer saved for the old keyboard-and-mouse item carries over to both new items") {
         let old = ["keyboard-mouse": "done", "monitor-height": "todo"]

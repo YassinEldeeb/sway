@@ -34,7 +34,7 @@ public enum HoldReason: Equatable, Sendable {
         switch self {
         case .paused(let until): return "Paused until \(Clock.time(until))"
         case .notificationsOff: return "Notifications are off in Sway's settings"
-        case .systemNotificationsOff: return "macOS isn't letting Sway show notifications, so reminders appear here only"
+        case .systemNotificationsOff: return "macOS isn't showing Sway's notifications (not allowed, or set to no banners), so reminders appear here only"
         case .quietHours: return "Quiet hours"
         case .likelyInCall: return "Held while another app uses the mic or camera"
         case .fullScreen: return "Held while a full-screen app is in front"
@@ -314,6 +314,10 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
         }
         return nil
     }
+
+    /// Every notification was removed from screen (guided break, pause,
+    /// deleted data).
+    public mutating func forgetPosted() { posted = [:] }
 
     public mutating func recordDelivered(_ r: DueReminder, at now: Date) {
         deliveries.append(now)

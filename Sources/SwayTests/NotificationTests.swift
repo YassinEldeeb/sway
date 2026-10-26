@@ -273,6 +273,15 @@ let notificationTests: [TestCase] = [
         c.work(9 * 60)
         expectEqual(c.count(.forwardLean), 1, "the lean is notified while the ignored break is still due")
     },
+    TestCase(name: "the log says a settling pause follows only holds that have one") {
+        var log = DecisionLog()
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: .systemNotificationsOff), now: t0)
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: nil), now: t0 + 5)
+        expectEqual(log.entries.last?.text, "Hold ended; reminders resume")
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: .likelyInCall), now: t0 + 10)
+        log.record(InterventionDecision(deliver: nil, statuses: [], hold: nil), now: t0 + 15)
+        expectEqual(log.entries.last?.text, "Hold ended; reminders resume after a short pause")
+    },
     TestCase(name: "the decision log records changes once, with reasons") {
         var c = Coach()
         c.work(25 * 60 + 10)

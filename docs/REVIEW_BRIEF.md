@@ -191,9 +191,9 @@ every check passes, in this order:
 1. **Not held.** Notifications are held while:
    - coaching is paused (30 min, 1 h, 2 h, or until tomorrow);
    - notifications are turned off in Sway;
-   - macOS isn't letting Sway show notifications (permission not given or
-     turned off in System Settings). The popover says so and offers an
-     "Allow" button; nothing counts as sent;
+   - macOS isn't showing Sway's notifications (permission not given, the
+     alert style set to None, or turned off in System Settings). The popover
+     says so and offers an "Allow" button; nothing counts as sent;
    - it's quiet hours (opt-in, 22:00–07:00 by default);
    - another app is using the mic or camera (a likely call);
    - a full-screen app is in front.
