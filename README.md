@@ -78,24 +78,31 @@ The popover shows, in order:
   break you complete. A few seconds of inactivity never count. Sleep, lock
   and wake are handled.
 
-**Smart notifications**, at four levels:
-1. Menu-bar hint.
-2. A gentle notification with one suggestion.
-3. An actionable notification: routine, 3-min break, snooze, not helpful,
-   recalibrate.
-4. When an issue keeps recurring, a once-a-day suggestion to fix the setup
-   instead of repeating the same reminder.
+**Smart notifications**, at three levels:
+1. Menu bar: every reminder shows here first, with a line saying whether it
+   was sent, is waiting (and until when), or is held, and why.
+2. Notification: one suggestion with actions (routine, 3-min break, snooze,
+   recalibrate, not helpful). Clicking it does its main action.
+3. Workstation suggestion: when an issue keeps recurring, once a day, instead
+   of repeating the same reminder. It opens the setup assistant at the item
+   that fits.
 
 Limits that keep it quiet:
 - dedupe, so a reminder is never sent twice;
+- a notification is removed as soon as it's no longer true (break taken,
+  position changed);
 - per-kind cooldowns and 8-minute spacing;
-- at most 3 per hour and 14 per day;
+- at most 3 per hour and 14 per day (a 2-hour session reminder is exempt);
 - 2 snoozes per reminder;
-- backing off to the menu bar after 3 dismissals of the same kind in a day.
+- backing off to the menu bar after 3 dismissals of the same kind, for the
+  rest of that day only.
 
 Reminders are held while another app uses the mic or camera (likely a call),
-while a full-screen app is in front, during quiet hours, and while paused.
-macOS Focus also holds them.
+while a full-screen app is in front, during quiet hours, while paused, and
+while macOS doesn't show Sway's notifications (the menu offers "Allow").
+When a hold ends, Sway waits 3 minutes and then sends at most the one
+reminder that is still current: no burst after a meeting. macOS Focus also
+holds them. Settings → Diagnostics keeps a log of every decision.
 
 **Posture monitoring** (optional, experimental):
 - Calibration: a guided capture of your comfortable position, an optional
@@ -107,6 +114,12 @@ macOS Focus also holds them.
   - head tilted to the side;
   - uneven shoulders (only when they're clearly visible);
   - long stretches with little movement.
+- Issues that come back in short bouts (4+ bouts of 30 s or more, over a
+  third of an hour with the camera) are noticed too. They lead to one
+  workstation suggestion that day, never a notification per bout.
+- If the face sits far from where it was calibrated for 10 minutes (the
+  screen, camera or chair probably moved), posture warnings stop and the
+  menu offers to recalibrate. Ordinary posture changes don't trigger it.
 - Low confidence, a missing face, another person in view, or looking at
   another screen never trigger a warning.
 - The camera runs only while you're at the computer. It turns off when you
@@ -121,18 +134,22 @@ and pause, and "did that help?" feedback.
 - monitor height, distance, angle and glare;
 - external monitors;
 - chair, feet and desk;
-- keyboard and mouse;
+- keyboard placement and mouse placement;
 - forearms, neck and shoulders, and varying position.
 
-Each item has an evidence tag and a quick check. A measurements page turns
+Each item has a diagram (a common mistake next to the recommended setup),
+an evidence tag and a quick check. Numbers are given as approximate ranges,
+not universal requirements. A measurements page turns
 the numbers you enter (Sway never estimates them) into suggestions. A
 calibration status indicator is included.
 
 **Dashboard**:
 - **Today**: active time, longest stretch, breaks, typical stretch, camera
-  time, sustained deviations by type, prompts and how you responded, comfort
-  check-in, and a timeline.
-- **Trends**: 7, 14 or 30 days.
+  time, sustained deviations by type, prompts and how you responded, an
+  optional comfort check-in (neck, upper back, lower back, eyes; 0–10), and
+  a timeline.
+- **Trends**: 7, 14 or 30 days, with comfort shown next to days of
+  workstation changes. It never claims cause and effect.
 - **Insights**: what Sway adapted and why, recurring patterns, and comfort
   over time.
 

@@ -526,9 +526,11 @@ Why it's built this way:
 
 **Verified on this Mac:**
 
-- **72 automated tests** pass (289 checks): `swift build --product
+- **113 automated tests** pass (469 checks): `swift build --product
   sway-tests && .build/debug/sway-tests`, with
-  `DEVELOPER_DIR=/Library/Developer/CommandLineTools`. They cover:
+  `DEVELOPER_DIR=/Library/Developer/CommandLineTools`; also under other
+  `TZ` values. Besides the list below, the reliability pass added tests for
+  every defect in §6 (see PROGRESS.md). They cover:
   - activity and break accounting;
   - sleep, missed sleep notifications and midnight;
   - guided breaks;
@@ -548,18 +550,25 @@ Why it's built this way:
   - The scheduling and policy tick takes about 2 µs.
   - Idle with the camera off: about 0.16% of one core and 20 MB footprint
     over 5 minutes.
-  - Camera-on cost is estimated at about 0.5% of a core. That figure is
-    derived, not measured.
+  - Camera on, measured live on the owner's Mac: 5–15% of one core
+    (median about 7%) at load about 45, 138 MB footprint. The earlier
+    derived estimate (0.5%) was too low.
 - **UI** reviewed as offscreen-rendered PNGs in light and dark.
 - **Live use by the owner on 2026-10-26.** Calibration on the FaceTime HD
   camera succeeded. Live readings changed as expected (a lean read +29%).
   The camera ran and stopped as designed.
 
+- **Upgrade and relaunch on real data:** timers and the day's data carried
+  over; the camera resumed with the same calibration.
+- **Launch at login** registers and unregisters (`Sway --login-item
+  cycle`).
+
 **Not yet verified:**
 
-- **A full held-lean episode on a real face** through to a delivered
-  notification.
-- **Notification action clicks** from a real notification.
+- **A full held-lean episode on a real face** through to a visible
+  notification. On the owner's Mac, macOS had never shown Sway's
+  notifications at all; the app now says so.
+- **Notification body clicks and action buttons** from a real notification.
 - **Launch at login** across a logout.
 - **Real sleep/wake and lock/unlock.** These are tested only with
   simulated events.
@@ -578,6 +587,22 @@ Why it's built this way:
 The pattern behind all three: correct internal behaviour that wasn't visible
 to the user. Please look for more of the same.
 
+**Reliability pass (later the same day).** Defects found by audit and two
+fresh-eyes reviews, each with a regression test:
+
+| Defect | Fix |
+| --- | --- |
+| Clicking any notification opened a routine, even "keeps coming back". | The body does the reminder's main action; workstation suggestions open setup at the matching item. |
+| Notifications stayed on screen after the break was taken or the user sat back. | Expired notifications are removed; a brief glance up keeps one. |
+| After a call, several held reminders could arrive in a burst, some no longer true. | 3-min settling, then at most one reminder that is still current. |
+| macOS never showed Sway's notifications, but they counted as sent. | A hold with an Allow button; nothing counts as sent. |
+| Silencing after dismissals could last past today; the 2-h session reminder could be silenced by budgets. | Silence ends at local midnight (also on DST days); long sessions ignore budgets. |
+| Posture reminders gave way to any due break, so ignoring breaks silenced posture for hours. | They give way only within 5 min of a break falling due. |
+| Three identical "This keeps coming back" titles. | Titles name the issue. |
+| A moved camera read as a lean. | Calibration health; off-geometry frames give no values. |
+| One unreadable field or unknown kind reset a whole saved day or state. | Tolerant decoding per field and per entry; unreadable files set aside. |
+| `build-app.sh` packaged the old binary after a compile error. | It fails the build. |
+
 ## 7. Known limitations
 
 - **No Focus or meeting state.** macOS doesn't expose them. Sway treats
@@ -586,7 +611,8 @@ to the user. Please look for more of the same.
 - **Calibration staleness is caught only when it's large.** A moved
   laptop, monitor or chair is noticed after 10 min only when the face sits
   far to the side or at a very different size. A small move (a few cm up
-  or down) still shifts the estimates without warning.
+  or down, a changed lid angle) still shifts the estimates without warning,
+  and sitting far back for 10+ minutes can look like a moved setup.
 - **Head-down without the reference is ambiguous.** Without the "look at
   the keyboard" step, head-down relies on vertical face position. That
   also changes when the user slouches down in the chair.

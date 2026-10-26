@@ -47,18 +47,37 @@ behaviour in milliseconds.
   120 min) escalates every 30 min. Eye rest is opt-in. Each due occurrence
   has an `instanceID` (e.g. `micro@<reference time>`), the key for
   dedupe and snoozing.
+- **PostureReminders**: turns sustained episodes into posture reminders,
+  and recurring issues into one workstation suggestion a day. A posture
+  reminder stays in the menu bar while it's new, when a break falls due
+  within 5 min either side (less with short break intervals), or when its
+  issue is recurring (little movement excepted). An easing episode is
+  `standby`: a notification already on screen stays until the episode
+  really ends, and nothing new is sent. It also maps notification clicks
+  to actions (`NotificationRouting`): the body does `ReminderKind.primaryAction`.
 - **InterventionEngine**: turns due reminders into at most one notification
-  per evaluation:
-  - holds: pause, notifications off, quiet hours, mic/camera in use
-    elsewhere, a full-screen app in front;
+  per evaluation. `decide` is pure and returns, for every reminder, whether
+  it was sent, held (and why) or waiting (`Blocker`, with a plain label);
+  `evaluate` also records hold times and expires stale notifications:
+  - holds: pause, notifications off, macOS not showing Sway's
+    notifications, quiet hours, mic/camera in use elsewhere, a full-screen
+    app in front;
+  - a 3-min settling time after a hold that settles ends;
+  - a notification on screen whose reminder is gone, replaced or back to
+    menu-only is reported in `expired` and removed;
   - per-instance dedupe (never re-sent unless snoozed);
   - per-kind cooldowns, doubled per consecutive dismissal;
   - global spacing (8 min) and budgets (3/hour, 14/day);
   - a snooze limit (2 per reminder);
   - after 3 consecutive dismissals or "not helpful" marks, that kind goes
-    menu-bar-only for the rest of the day. Long-session prompts are exempt.
+    menu-bar-only until the next local midnight. Long-session prompts are
+    exempt from this and from budgets.
 
-  Everything held or blocked stays visible in the menu (level 1, passive).
+  Levels are `menu`, `notify` and `setup`. Everything held or blocked stays
+  visible in the menu with its reason.
+- **DecisionLog**: writes each change in a reminder's state once (sent,
+  held, waiting and why, expired, no longer due, answered); at most 200
+  entries, shown in Diagnostics.
 - **PostureEngine**: works on observations relative to the calibration.
   - Per-issue values: head-down score (projection onto the user's own
     "look at the keyboard" movement, or face drop / 0.5 face heights),
@@ -78,6 +97,18 @@ behaviour in milliseconds.
     45 min.
   - A calibration from another camera produces nothing until the user
     recalibrates.
+  - `FrequentPatternDetector` (per issue: head down, leaning in, little
+    movement) keeps per-minute observed and over-the-line time for a
+    rolling 60-min window. Only bouts of 30 s+ count; a 10 s dip doesn't end
+    a bout and a 45 s gap in observation does. It flags an issue with 30+
+    observed minutes and 4+ bouts covering 35%+ (little movement: 70%+, in
+    2+ bouts). The app records a flag once a day (`Ledger.flagFrequent`),
+    which feeds the workstation suggestion.
+  - `CalibrationHealthMonitor` keeps 10-s slots of observed and "off"
+    time (face centre more than 0.22 image widths from calibration, or size
+    outside 0.6–1.8×). 85% off over 10 min (5+ observed) marks it suspect:
+    status `calibrationSuspect`, no posture values. 30% or less over 3 min
+    clears it. Off-geometry frames never yield posture values.
 - **Personalization**: needs at least 4 prompts of a kind in 14 days. It can
   space break reminders out by up to 50%, make a posture issue up to 60% less
   sensitive, or double a posture cooldown. Every change carries an

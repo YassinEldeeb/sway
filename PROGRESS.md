@@ -4,10 +4,11 @@ Last updated: 2026-10-26.
 
 ## Status
 
-All five phases are implemented, the app builds and runs, and 72 automated
-tests pass. A fresh-eyes review found 16 defects; all are fixed (see "Review
-fixes"). What still needs hardware, permissions or a person is listed
-under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
+All five phases are implemented, followed by a reliability pass for daily
+use (see "Reliability pass"). The app builds and runs, and 113 automated
+tests pass. Two fresh-eyes reviews found defects; all clear ones are fixed.
+What still needs hardware, permissions or a person is listed under "Not
+yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Completed
 
@@ -30,15 +31,21 @@ under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
       gating and hysteresis, stillness detection.
 - [x] Phase 4: dashboard (Today / Trends / Insights), comfort check-in,
       interpretable metrics with definitions, bounded and explained
-      personalization, level-4 pattern escalation, workstation setup
-      assistant with manual measurements.
+      personalization, pattern escalation, workstation setup assistant with
+      manual measurements.
+- [x] Reliability pass (2026-10-26): notification defects, frequent-pattern
+      detection, notification decision log, calibration health, comfort
+      check-in by area, a diagram for every setup item, clearer states in
+      the menu bar.
 - [x] Phase 5: tests, benchmark mode, resource measurement, offscreen UI
       snapshots (reviewed in light and dark), fresh-eyes review, docs.
 
 ## Test results
 
 `swift build --product sway-tests && .build/debug/sway-tests`, last run
-2026-10-26: **72 passed, 0 failed, 289 checks, ~1.7 s.**
+2026-10-26: **113 passed, 0 failed, 469 checks, ~5 s.** Also passes with
+`TZ` set to Pacific/Kiritimati, Pacific/Honolulu and America/Los_Angeles
+(the runner pins its own zone to UTC; DST tests set Europe/Lisbon).
 
 Covered: activity-session calculations; break scheduling; sleep/wake (two
 hours of sleep, a missed sleep notification, sleep while away); midnight
@@ -51,6 +58,24 @@ deviation (5 s lean → nothing; 8 min lean → one episode dated from its start
 frequent position changes; 45 min still; face tracking lost briefly vs. for
 minutes; camera disconnect; camera switch requiring recalibration;
 hysteresis; looking at another monitor; data retention and deletion.
+
+Added in the reliability pass: notification click routing and setup-item
+links; stale notifications removed (posture eased, break taken, replaced,
+menu-only); a brief glance keeps a notification; settling after a call
+with exactly one reminder after; macOS notifications blocked; blocker
+explanations; silence lasting today only (also on DST days); long
+sessions ignoring budgets; posture/break coordination (including ignored
+breaks and 5-min intervals); the decision log; relaunch round trip; old
+and partly unreadable saved files; repeated short leans and head-down
+bouts; ordinary movement, low confidence and interruptions never flagged;
+one long still stretch not a pattern; slow sampling; window clipping; moved
+camera vs. ordinary posture; hedged numbers in setup guidance; legacy
+keyboard-and-mouse answers.
+
+Mutation checks: the settle time, expiry, decision log, minimum bout,
+off-geometry gating, ignored-break yield, still-stretch rule, window
+clipping, slow sampling, lenient decoding and DST end of day were each
+broken on purpose; the matching tests failed.
 
 Synthetic landmark sequences are deterministic (xorshift noise, fixed seed).
 
@@ -141,14 +166,32 @@ threshold (calculated, not re-run).
   now cached, and Vision stats are published once per tick.
 - **Clock changes:** a backwards clock step credited time twice.
 
+## Reliability pass: checked on the real app (2026-10-26)
+
+- Upgrade over a day of the owner's real data: session start, active time
+  (3992 → 4081 s) and camera time (3190 → 3245 s) carried over.
+- Camera permission kept across reinstalls; after a relaunch the camera
+  resumed with the same calibration file (identical hash) and camera time
+  kept growing.
+- Camera on, live: 5–15% of one core (median about 7%, 2-s frames, laptop
+  load about 45 from other work), 90–115 MB resident, 138 MB footprint
+  (peak 156 MB). That's higher than the derived ~0.5% estimate above, which
+  should be read as wrong for this machine under load.
+- Launch at login: `Sway --login-item cycle` registered the app
+  ("enabled") and restored it to off. Starting at an actual login was not
+  tested.
+- On this Mac, macOS has never shown Sway's notifications (Sway isn't in
+  System Settings → Notifications), so earlier "sent" reminders were
+  invisible. The app now says so in the menu and the decision log.
+
 ## Not yet verified (needs hardware, permissions or interaction)
 
-- Live camera capture, calibration and posture prompts on a real face.
-  Implemented and covered with synthetic sequences; I did not turn on the
-  camera.
-- Notification permission prompt and action buttons (needs a person to
-  click).
-- Launch at login (needs a logout/login).
+- A full held-lean episode on a real face through to a visible
+  notification, and the frequent-bout and moved-camera states on a real
+  face (all covered with synthetic sequences only).
+- Notification permission prompt, body clicks and action buttons (needs a
+  person to click).
+- Launch at login across a real logout/login.
 - Real sleep/wake and lock/unlock transitions (tested with simulated events).
 - Mic/camera-in-use and full-screen holds with a real call.
 - `Xcode/Sway.xcodeproj` building in Xcode (the Xcode license isn't accepted
@@ -161,9 +204,13 @@ threshold (calculated, not re-run).
   apps. Sway relies on macOS holding notifications during Focus and treats
   "another app uses the mic or camera" as a likely call. It can't tell a
   dictation session from a call, or detect screen sharing without a mic.
-- Camera estimates are relative to one calibration. Moving the laptop,
-  monitor or chair invalidates them until you recalibrate. Sway can't
-  detect such a move automatically, except a camera change.
+- Camera estimates are relative to one calibration. A large lasting move
+  of the laptop, monitor or chair is caught (posture warnings stop, the menu
+  offers to recalibrate); a small one (a few cm, a changed lid angle) still
+  shifts the estimates without warning. Sitting far back for 10+ minutes
+  can also look like a moved setup.
+- Comfort check-ins recorded before the back was split into upper and lower
+  stay as "back" and aren't part of the per-area averages.
 - Head pitch from Vision is used only when the "look at your keyboard"
   reference teaches its direction. Without it, head-down relies on vertical
   face position, which also changes if you slouch down in the chair.
