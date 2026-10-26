@@ -46,6 +46,12 @@ public struct InterventionDecision: Equatable, Sendable {
     public var passive: [DueReminder]
     /// Why nothing was delivered, when a context holds reminders.
     public var hold: HoldReason?
+
+    public init(deliver: DueReminder?, passive: [DueReminder], hold: HoldReason?) {
+        self.deliver = deliver
+        self.passive = passive
+        self.hold = hold
+    }
 }
 
 /// Notification policy: deduplication, per-kind cooldowns, global spacing,

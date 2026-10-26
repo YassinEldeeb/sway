@@ -100,6 +100,14 @@ let schedulingTests: [TestCase] = [
         expectEqual(next?.kind, .microBreak)
         expectClose(next?.at.timeIntervalSince(sim.now) ?? 0, 15 * 60, tolerance: 6)
     },
+    TestCase(name: "the countdown agrees with what is due when a micro break yields") {
+        var sim = Sim()
+        sim.work(47 * 60)   // micro passed at 25, but the long break is 8 min away
+        expect(BreakScheduler.due(now: sim.now, tracker: sim.tracker, settings: sim.settings).isEmpty)
+        let next = BreakScheduler.next(now: sim.now, tracker: sim.tracker, settings: sim.settings)
+        expectEqual(next?.kind, .longBreak)
+        expectClose(next?.at.timeIntervalSince(sim.now) ?? 0, 8 * 60, tolerance: 6)
+    },
     TestCase(name: "four hours of continuous work: escalates, but stays within budget") {
         var loop = Loop()
         loop.work(4 * 3600) { _ in .dismissed }

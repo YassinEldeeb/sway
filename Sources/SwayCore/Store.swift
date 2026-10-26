@@ -22,6 +22,11 @@ public struct ComfortCheckIn: Codable, Equatable, Sendable {
 public struct LogEntry: Codable, Equatable, Sendable {
     public var at: Date
     public var text: String
+
+    public init(at: Date, text: String) {
+        self.at = at
+        self.text = text
+    }
 }
 
 /// Everything Sway keeps about one local day. Derived numbers only: no
@@ -96,7 +101,11 @@ public struct Ledger: Equatable, Sendable {
         records[day] ?? DailyRecord(day: day)
     }
 
-    mutating func update(_ day: String, _ f: (inout DailyRecord) -> Void) {
+    public mutating func note(_ text: String, at: Date, calendar: Calendar = .current) {
+        update(DayKey.key(at, calendar: calendar)) { $0.appendLog(text, at: at) }
+    }
+
+    public mutating func update(_ day: String, _ f: (inout DailyRecord) -> Void) {
         var r = records[day] ?? DailyRecord(day: day)
         f(&r)
         records[day] = r

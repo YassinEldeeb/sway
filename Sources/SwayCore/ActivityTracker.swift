@@ -17,6 +17,13 @@ public struct BreakRecord: Codable, Equatable, Sendable {
     public var kind: BreakKind
     public var source: BreakSource
     public var duration: TimeInterval { end.timeIntervalSince(start) }
+
+    public init(start: Date, end: Date, kind: BreakKind, source: BreakSource) {
+        self.start = start
+        self.end = end
+        self.kind = kind
+        self.source = source
+    }
 }
 
 /// What a tracker update changed. The store applies these to daily records,

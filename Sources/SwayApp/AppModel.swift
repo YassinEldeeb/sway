@@ -1,0 +1,626 @@
+import AppKit
+import AVFoundation
+import Combine
+import SwayCore
+
+/// Collects frames during calibration. Observations go here instead of the
+/// posture engine while it exists.
+@MainActor
+final class CalibrationSession: ObservableObject {
+    enum Phase: Equatable { case positioning, baseline, lookDownPrompt, lookDown, review }
+
+    let deviceID: String
+    let deviceName: String
+    @Published var phase: Phase = .positioning
+    @Published private(set) var progress: Double = 0
+    @Published private(set) var lastObservation: PostureObservation?
+    @Published var result: Result<Calibration, CalibrationError>?
+    private(set) var baseline: [PostureObservation] = []
+    private(set) var lookDown: [PostureObservation] = []
+    private var phaseStart = Date()
+
+    static let baselineSeconds: TimeInterval = 8
+    static let lookDownSeconds: TimeInterval = 4
+
+    init(deviceID: String, deviceName: String) {
+        self.deviceID = deviceID
+        self.deviceName = deviceName
+    }
+
+    var faceVisible: Bool {
+        guard let o = lastObservation, Date().timeIntervalSince(o.timestamp) < 2 else { return false }
+        return o.faceCount == 1 && o.faceConfidence >= 0.6
+    }
+
+    func begin(_ p: Phase) {
+        phase = p
+        phaseStart = Date()
+        progress = 0
+        if p == .baseline { baseline = [] }
+        if p == .lookDown { lookDown = [] }
+    }
+
+    func add(_ o: PostureObservation, minConfidence: Double) {
+        lastObservation = o
+        let elapsed = Date().timeIntervalSince(phaseStart)
+        switch phase {
+        case .baseline:
+            baseline.append(o)
+            progress = min(1, elapsed / Self.baselineSeconds)
+            if elapsed >= Self.baselineSeconds { phase = .lookDownPrompt }
+        case .lookDown:
+            lookDown.append(o)
+            progress = min(1, elapsed / Self.lookDownSeconds)
+            if elapsed >= Self.lookDownSeconds { finish(minConfidence: minConfidence, includeLookDown: true) }
+        default:
+            break
+        }
+    }
+
+    func finish(minConfidence: Double, includeLookDown: Bool) {
+        result = CalibrationBuilder.build(samples: baseline, lookDown: includeLookDown ? lookDown : [], cameraID: deviceID, cameraName: deviceName, minConfidence: minConfidence, now: Date())
+        phase = .review
+    }
+}
+
+struct GuidedBreak: Equatable {
+    var start: Date
+    var end: Date
+    var idleTicks = 0
+    var totalTicks = 0
+}
+
+@MainActor
+final class AppModel: ObservableObject {
+    static let shared = AppModel()
+
+    let store: SwayStore
+    let notifications = NotificationService()
+    let camera = CameraService()
+    private let power = PowerObserver()
+    private let resources = ResourceMonitor()
+
+    @Published var settings: CoachSettings {
+        didSet { settingsChanged(from: oldValue) }
+    }
+    @Published private(set) var runtime: RuntimeState
+    @Published private(set) var calibration: Calibration?
+    @Published private(set) var posture = PostureEngine()
+    @Published private(set) var decision = InterventionDecision(deliver: nil, passive: [], hold: nil)
+    @Published private(set) var cameraState: CameraState = .off
+    @Published private(set) var visionStats = VisionStats()
+    @Published private(set) var resourceSample: ResourceSample?
+    @Published private(set) var adjustments = Adjustments.neutral
+    @Published private(set) var patternIssues: Set<PostureIssue> = []
+    @Published private(set) var now = Date()
+    @Published private(set) var context = InterruptionContext()
+    @Published private(set) var guidedBreak: GuidedBreak?
+    @Published private(set) var suspended = false
+    @Published private(set) var cameraAuthorization = CameraService.authorization()
+    @Published var calibrationSession: CalibrationSession?
+    @Published var launchAtLoginMessage: String?
+
+    private var ledger = Ledger()
+    private var timer: Timer?
+    private var lastSave = Date.distantPast
+    private var lastContextCheck = Date.distantPast
+    private var lastPersonalization = Date.distantPast
+    private var lastResourceSample = Date.distantPast
+    private var lastCameraAttempt = Date.distantPast
+    private var lastCameraAccounting: Date?
+    private var lastPrune = Date.distantPast
+    private var currentDay = DayKey.key(Date())
+    private var cancellables: Set<AnyCancellable> = []
+
+    private init() {
+        // SWAY_DATA_DIR points the app at another folder (demo data, snapshots).
+        let dir = ProcessInfo.processInfo.environment["SWAY_DATA_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) }
+        store = SwayStore(directory: dir ?? SwayStore.defaultDirectory())
+        settings = store.loadSettings()
+        runtime = store.loadRuntime()
+        calibration = store.loadCalibration()
+        let today = DayKey.key(Date())
+        if let r = store.loadDay(today) { ledger.records[today] = r }
+        context.pausedUntil = runtime.pausedUntil
+        posture.configure(calibration: calibration, cameraID: calibration?.cameraID, settings: settings)
+
+        camera.onState = { [weak self] s in self?.cameraStateChanged(s) }
+        camera.onObservation = { [weak self] o in self?.observe(o) }
+        camera.onStats = { [weak self] s in self?.visionStats = s }
+        power.onSuspend = { [weak self] in self?.systemSuspended() }
+        power.onResume = { [weak self] in self?.systemResumed() }
+        notifications.onAction = { [weak self] action, response, instance, kind in
+            self?.handle(action: action, response: response, instance: instance, kind: kind)
+        }
+        NotificationCenter.default.publisher(for: .AVCaptureDeviceWasConnected)
+            .sink { [weak self] _ in self?.lastCameraAttempt = .distantPast }
+            .store(in: &cancellables)
+        NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)
+            .sink { [weak self] _ in self?.persist() }
+            .store(in: &cancellables)
+    }
+
+    func start() {
+        notifications.setUp()
+        recomputePersonalization()
+        recomputePatterns()
+        tick()
+        let t = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tick() }
+        }
+        t.tolerance = 1.5
+        RunLoop.main.add(t, forMode: .common)
+        timer = t
+    }
+
+    // MARK: Derived state
+
+    var today: DailyRecord {
+        ledger.records[DayKey.key(now)] ?? DailyRecord(day: DayKey.key(now))
+    }
+
+    var tracker: ActivityTracker { runtime.tracker }
+
+    var isPaused: Bool { (runtime.pausedUntil ?? .distantPast) > now }
+
+    var continuousWork: TimeInterval { runtime.tracker.continuousWork(at: now) }
+
+    var nextBreak: UpcomingBreak? { BreakScheduler.next(now: now, tracker: runtime.tracker, settings: settings, adjustments: adjustments) }
+
+    /// The reminder to show in the menu (delivered or passive).
+    var attention: DueReminder? { decision.deliver ?? decision.passive.first }
+
+    var activeIssues: [ActiveIssue] { cameraState.isRunning ? posture.activeIssues() : [] }
+
+    /// Today's active time including the stretch in progress.
+    var longestStretchToday: TimeInterval {
+        max(today.longestStretch, runtime.tracker.sessionStart.map { Calendar.current.isDate($0, inSameDayAs: now) ? continuousWork : 0 } ?? 0)
+    }
+
+    func history(days: Int) -> [DailyRecord] {
+        var list = store.recent(days: days, now: now)
+        if !list.isEmpty { list[list.count - 1] = today }
+        return list
+    }
+
+    func canSnooze(_ r: DueReminder) -> Bool { runtime.engine.canSnooze(r.instanceID, settings: settings) }
+
+    // MARK: Tick
+
+    private func tick() {
+        now = Date()
+        let day = DayKey.key(now)
+        if day != currentDay {
+            persist()
+            currentDay = day
+            ledger.records = ledger.records.filter { $0.key >= day }
+            recomputePatterns()
+            recomputePersonalization()
+        }
+        if !suspended {
+            apply(runtime.tracker.tick(now: now, idleSeconds: SystemSignals.idleSeconds(), settings: settings))
+        }
+        if now.timeIntervalSince(lastContextCheck) >= 10 { refreshContext() }
+        updateCamera()
+        accountCamera()
+        updateGuidedBreak()
+        evaluate()
+        if now.timeIntervalSince(lastResourceSample) >= 30 {
+            lastResourceSample = now
+            if let s = resources.sample() { resourceSample = s }
+        }
+        if now.timeIntervalSince(lastSave) >= 60 { persist() }
+        if now.timeIntervalSince(lastPersonalization) >= 3600 { recomputePersonalization() }
+        if now.timeIntervalSince(lastPrune) >= 86_400 {
+            lastPrune = now
+            store.prune(retentionDays: settings.retentionDays, now: now)
+        }
+    }
+
+    private func apply(_ events: [ActivityEvent]) {
+        guard !events.isEmpty else { return }
+        ledger.apply(events)
+    }
+
+    private func refreshContext() {
+        lastContextCheck = now
+        let ownCamera = cameraState.isRunning ? camera.currentDeviceID : nil
+        var others = SystemSignals.runningCameraUIDs()
+        if let own = ownCamera { others.remove(own) }
+        context.micOrCameraInUseByOthers = SystemSignals.microphoneInUse() || !others.isEmpty
+        context.fullScreenAppInFront = SystemSignals.fullScreenAppInFront()
+        context.pausedUntil = runtime.pausedUntil
+        cameraAuthorization = CameraService.authorization()
+        notifications.refresh()
+    }
+
+    private func evaluate() {
+        var candidates = BreakScheduler.due(now: now, tracker: runtime.tracker, settings: settings, adjustments: adjustments)
+        candidates += postureCandidates()
+        context.pausedUntil = runtime.pausedUntil
+        decision = runtime.engine.decide(candidates: candidates, now: now, context: context, settings: settings, adjustments: adjustments)
+        if let r = decision.deliver {
+            runtime.engine.recordDelivered(r, at: now)
+            ledger.prompted(r.kind, at: now)
+            notifications.post(r, canSnooze: canSnooze(r))
+        }
+    }
+
+    private func postureCandidates() -> [DueReminder] {
+        guard guidedBreak == nil else { return [] }
+        var out: [DueReminder] = []
+        for a in activeIssues {
+            let t = settings.thresholds(for: a.issue)
+            let detectedAt = a.since.addingTimeInterval(t.minDuration)
+            let lasting = now.timeIntervalSince(a.since)
+            let pattern = patternIssues.contains(a.issue)
+            let level: InterventionLevel = (pattern || now < detectedAt.addingTimeInterval(settings.postureNotifyAfter)) ? .passive : .gentle
+            let text = Self.postureText(a.issue, lasting: lasting)
+            out.append(DueReminder(kind: ReminderKind(a.issue), dueAt: detectedAt, instanceID: "\(a.issue.rawValue)@\(Int(a.since.timeIntervalSince1970))", level: level, title: text.title, body: text.body, priority: 60))
+            if pattern {
+                out.append(DueReminder(kind: .workstationReview, dueAt: detectedAt, instanceID: "review-\(a.issue.rawValue)-\(DayKey.key(now))", level: .pattern, title: "This keeps coming back", body: PatternDetector.advice(for: a.issue), priority: 30))
+            }
+        }
+        return out
+    }
+
+    static func postureText(_ issue: PostureIssue, lasting: TimeInterval) -> (title: String, body: String) {
+        let d = Format.duration(lasting)
+        switch issue {
+        case .headDown:
+            return ("Your head has been tilted downward for a while", "About \(d). Try changing position: sit back and bring your gaze up. If this happens a lot, the screen may be too low.")
+        case .forwardLean:
+            return ("You've been leaning toward the screen", "About \(d). Sit back against your chair; if text is hard to read, enlarge it (⌘+) instead of moving closer.")
+        case .lateralTilt:
+            return ("Your head has been tilted to one side", "About \(d). Re-centre your head, and check whether what you're looking at sits off to one side.")
+        case .shoulderAsymmetry:
+            return ("One shoulder has been raised for a while", "About \(d). Let both shoulders drop. Check the mouse isn't too far out or too high.")
+        case .staticPosture:
+            return ("Your neck position has stayed very still", "About \(d) with little movement. Try a comfortable movement break — roll your shoulders, look around, or stand for a minute.")
+        }
+    }
+
+    // MARK: Camera
+
+    private var effectiveCameraID: String? {
+        settings.preferredCameraID ?? calibration?.cameraID ?? CameraService.defaultDevice()?.id
+    }
+
+    /// SWAY_NO_CAMERA=1 keeps the camera off whatever the settings say
+    /// (snapshots and other tooling).
+    static let cameraBlocked = ProcessInfo.processInfo.environment["SWAY_NO_CAMERA"] != nil
+
+    private var wantsCamera: Bool {
+        if Self.cameraBlocked { return false }
+        if calibrationSession != nil { return !suspended }
+        guard settings.cameraMonitoringEnabled, cameraAuthorization == .authorized, !suspended, !isPaused,
+              let cal = calibration, cal.cameraID == effectiveCameraID else { return false }
+        // Only while the user is at the computer: the camera turns off when
+        // they step away and back on when they return.
+        return runtime.tracker.isActive
+    }
+
+    private var cameraInterval: TimeInterval {
+        if calibrationSession != nil { return 0.25 }
+        var i = settings.sampleInterval
+        if SystemSignals.onBattery() { i *= 2 }
+        if posture.status == .searching { i *= 2.5 }
+        return i
+    }
+
+    private func updateCamera() {
+        let running = cameraState.isRunning || cameraState == .starting
+        if wantsCamera {
+            if running {
+                camera.setInterval(cameraInterval)
+            } else if now.timeIntervalSince(lastCameraAttempt) >= 30 {
+                lastCameraAttempt = now
+                let id = calibrationSession?.deviceID ?? calibration?.cameraID
+                camera.start(deviceID: id, interval: cameraInterval)
+            }
+        } else if running {
+            camera.stop()
+        }
+        if !wantsCamera, posture.status != .off || !posture.activeIssues().isEmpty {
+            stopPosture(status: postureIdleStatus)
+        }
+    }
+
+    private var postureIdleStatus: TrackingStatus {
+        if calibration == nil { return .notCalibrated }
+        if let id = effectiveCameraID, calibration?.cameraID != id { return .needsRecalibration }
+        return .off
+    }
+
+    private func stopPosture(status: TrackingStatus) {
+        for e in posture.stop(status: status) {
+            if case .ended(let ep) = e { recordEpisode(ep) }
+        }
+    }
+
+    private func cameraStateChanged(_ s: CameraState) {
+        cameraState = s
+        if !s.isRunning { lastCameraAccounting = nil }
+        if case .unavailable = s { stopPosture(status: .off) }
+        if s == .unauthorized { cameraAuthorization = CameraService.authorization() }
+    }
+
+    private func accountCamera() {
+        guard cameraState.isRunning, calibrationSession == nil else { lastCameraAccounting = nil; return }
+        if let last = lastCameraAccounting {
+            let dt = min(now.timeIntervalSince(last), 10)
+            if dt > 0 { ledger.addCamera(seconds: dt, reliable: posture.status == .tracking, at: now) }
+        }
+        lastCameraAccounting = now
+    }
+
+    private func observe(_ o: PostureObservation) {
+        if let session = calibrationSession {
+            session.add(o, minConfidence: settings.minFaceConfidence)
+            return
+        }
+        guard wantsCamera else { return }
+        for e in posture.process(o, settings: settings) {
+            if case .ended(let ep) = e { recordEpisode(ep) }
+        }
+    }
+
+    private func recordEpisode(_ ep: PostureEpisode) {
+        guard ep.duration >= 30 else { return }
+        ledger.apply(ep)
+        recomputePatterns()
+    }
+
+    func requestCameraAccess(_ done: @escaping (Bool) -> Void) {
+        CameraService.requestAccess { ok in
+            self.cameraAuthorization = CameraService.authorization()
+            done(ok)
+        }
+    }
+
+    func beginCalibration(device: CameraDevice) {
+        guard !Self.cameraBlocked else { return }
+        if cameraState.isRunning { camera.stop() }
+        stopPosture(status: .off)
+        calibrationSession = CalibrationSession(deviceID: device.id, deviceName: device.name)
+        lastCameraAttempt = .distantPast
+        camera.start(deviceID: device.id, interval: 0.25)
+        lastCameraAttempt = now
+    }
+
+    func saveCalibration(_ c: Calibration) {
+        calibration = c
+        try? store.save(c)
+        calibrationSession = nil
+        camera.stop()
+        var s = settings
+        s.preferredCameraID = c.cameraID
+        s.cameraMonitoringEnabled = true
+        settings = s
+        posture.configure(calibration: c, cameraID: c.cameraID, settings: settings, adjustments: adjustments)
+        lastCameraAttempt = .distantPast
+        ledger.note("Calibrated with \(c.cameraName)", at: Date())
+    }
+
+    func cancelCalibration() {
+        calibrationSession = nil
+        camera.stop()
+        lastCameraAttempt = .distantPast
+    }
+
+    func setCameraMonitoring(_ on: Bool) {
+        var s = settings
+        s.cameraMonitoringEnabled = on
+        settings = s
+        if !on {
+            camera.stop()
+            stopPosture(status: .off)
+        }
+        lastCameraAttempt = .distantPast
+        tick()
+    }
+
+    // MARK: Sleep / wake
+
+    private func systemSuspended() {
+        guard !suspended else { return }
+        suspended = true
+        apply(runtime.tracker.suspend(now: Date(), idleSeconds: SystemSignals.idleSeconds(), settings: settings))
+        camera.stop()
+        stopPosture(status: .off)
+        persist()
+    }
+
+    private func systemResumed() {
+        guard suspended else { return }
+        suspended = false
+        runtime.tracker.resume(now: Date())
+        lastCameraAttempt = .distantPast
+        cameraAuthorization = CameraService.authorization()
+        tick()
+    }
+
+    // MARK: Responses
+
+    func handle(action: NotificationAction?, response: PromptResponse?, instance: String, kind: ReminderKind) {
+        if let response { record(response, kind: kind, instance: instance) }
+        switch action {
+        case .startRoutine: WindowManager.shared.showRoutine(RoutineLibrary.suggested(for: kind))
+        case .takeBreak: startGuidedBreak()
+        case .recalibrate: WindowManager.shared.show(.calibration)
+        case .eyeDone: runtime.tracker.acknowledgeEyeRest(at: Date())
+        case .openSetup: WindowManager.shared.show(.setup)
+        case .snooze, .unhelpful, nil: break
+        }
+        evaluate()
+    }
+
+    func record(_ response: PromptResponse, kind: ReminderKind, instance: String) {
+        let t = Date()
+        if response == .snoozed {
+            runtime.engine.snooze(instance, kind: kind, now: t, settings: settings)
+        }
+        runtime.engine.record(response, kind: kind, now: t)
+        ledger.responded(kind, response, at: t)
+        if response != .helpful { notifications.clear(kind) }
+        if response == .unhelpful || response == .dismissed { recomputePersonalization() }
+    }
+
+    /// From the menu-bar card.
+    func respond(_ r: DueReminder, _ response: PromptResponse) {
+        handle(action: response == .snoozed ? .snooze : (response == .unhelpful ? .unhelpful : nil), response: response, instance: r.instanceID, kind: r.kind)
+    }
+
+    // MARK: Breaks & routines
+
+    func startGuidedBreak(minutes: Double = 3) {
+        let t = Date()
+        runtime.tracker.beginGuidedBreak(at: t)
+        guidedBreak = GuidedBreak(start: t, end: t.addingTimeInterval(minutes * 60))
+        notifications.clearAll()
+    }
+
+    func endGuidedBreak() {
+        guard let g = guidedBreak else { return }
+        let fraction = g.totalTicks == 0 ? 0 : Double(g.idleTicks) / Double(g.totalTicks)
+        apply(runtime.tracker.finishGuidedBreak(at: Date(), idleFraction: fraction))
+        guidedBreak = nil
+        evaluate()
+    }
+
+    private func updateGuidedBreak() {
+        guard var g = guidedBreak else { return }
+        g.totalTicks += 1
+        if SystemSignals.idleSeconds() >= 8 || !runtime.tracker.isActive { g.idleTicks += 1 }
+        guidedBreak = g
+        if now >= g.end { endGuidedBreak() }
+    }
+
+    func routineFinished(_ routine: Routine, start: Date, completedFraction: Double) {
+        let end = Date()
+        if completedFraction >= 0.6 {
+            apply(runtime.tracker.completeRoutine(start: start, end: end))
+            ledger.routineCompleted(at: end)
+            if routine.category == .eyes { runtime.tracker.acknowledgeEyeRest(at: end) }
+        }
+        evaluate()
+        persist()
+    }
+
+    func routineFeedback(helpful: Bool) {
+        ledger.responded(.microBreak, helpful ? .helpful : .unhelpful, at: Date())
+        persist()
+    }
+
+    // MARK: Pause
+
+    func pause(for seconds: TimeInterval?) {
+        if let seconds {
+            runtime.pausedUntil = Date().addingTimeInterval(seconds)
+        } else {
+            // Until tomorrow morning.
+            let cal = Calendar.current
+            let tomorrow = cal.date(byAdding: .day, value: 1, to: cal.startOfDay(for: Date()))!
+            runtime.pausedUntil = cal.date(bySettingHour: 6, minute: 0, second: 0, of: tomorrow)
+        }
+        notifications.clearAll()
+        camera.stop()
+        stopPosture(status: .off)
+        persist()
+        tick()
+    }
+
+    func resume() {
+        runtime.pausedUntil = nil
+        lastCameraAttempt = .distantPast
+        persist()
+        tick()
+    }
+
+    // MARK: Comfort, personalization, patterns
+
+    func saveComfort(neck: Int, back: Int, eyes: Int, note: String?) {
+        ledger.setComfort(ComfortCheckIn(neck: neck, back: back, eyes: eyes, note: note?.isEmpty == true ? nil : note, at: Date()))
+        persist()
+    }
+
+    func recomputePersonalization() {
+        lastPersonalization = Date()
+        let days = history(days: 14)
+        var counts: [ReminderKind: ResponseCounts] = [:]
+        for d in days { for (k, c) in d.prompts { counts[k, default: ResponseCounts()] = counts[k, default: ResponseCounts()] + c } }
+        adjustments = Personalization.compute(counts: counts, naturalStretches: days.flatMap(\.stretches))
+        posture.rebuildDetectors(settings: settings, adjustments: adjustments)
+    }
+
+    private func recomputePatterns() {
+        let earlier = history(days: 7).dropLast().map { Set($0.postureEpisodes.filter { $0.value > 0 }.keys) }
+        patternIssues = PatternDetector.persistent(todayEpisodes: today.postureEpisodes, recentDays: Array(earlier))
+    }
+
+    func setChecklist(_ id: String, _ status: String?) {
+        runtime.setupChecklist[id] = status
+        persist()
+    }
+
+    func setMeasurement(_ id: String, _ value: Double?) {
+        runtime.setupMeasurements[id] = value
+        persist()
+    }
+
+    // MARK: Settings & data
+
+    private func settingsChanged(from old: CoachSettings) {
+        let clean = settings.sanitized()
+        if clean != settings {
+            settings = clean
+            return
+        }
+        try? store.save(settings)
+        posture.rebuildDetectors(settings: settings, adjustments: adjustments)
+        if old.showDockIcon != settings.showDockIcon {
+            NSApp.setActivationPolicy(settings.showDockIcon ? .regular : .accessory)
+        }
+        if old.preferredCameraID != settings.preferredCameraID || old.cameraMonitoringEnabled != settings.cameraMonitoringEnabled {
+            if cameraState.isRunning { camera.stop() }
+            lastCameraAttempt = .distantPast
+        }
+    }
+
+    func persist() {
+        lastSave = Date()
+        try? store.save(runtime)
+        for (_, r) in ledger.records { try? store.save(r) }
+    }
+
+    func deleteAllData() {
+        camera.stop()
+        stopPosture(status: .notCalibrated)
+        notifications.clearAll()
+        try? store.deleteAll()
+        ledger = Ledger()
+        runtime = RuntimeState()
+        calibration = nil
+        adjustments = .neutral
+        patternIssues = []
+        var fresh = CoachSettings()
+        fresh.onboardingComplete = true
+        settings = fresh
+        posture.configure(calibration: nil, cameraID: nil, settings: settings)
+        try? store.save(settings)
+        tick()
+    }
+
+    func resetPersonalization() {
+        runtime.engine = InterventionEngine()
+        for key in ledger.records.keys { ledger.update(key) { $0.prompts = [:] } }
+        for d in store.recent(days: 30, now: now) where !d.prompts.isEmpty {
+            var copy = d
+            copy.prompts = [:]
+            try? store.save(copy)
+        }
+        recomputePersonalization()
+        persist()
+    }
+}
+

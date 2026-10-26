@@ -108,7 +108,9 @@ public enum BreakScheduler {
         let moveRef = tracker.lastMovement(fallback: now)
         let longAt = longRef.addingTimeInterval(settings.longBreakInterval * adjustments.intervalMultiplier(.longBreak))
         let microAt = moveRef.addingTimeInterval(settings.microBreakInterval * adjustments.intervalMultiplier(.microBreak))
-        if microAt < longAt, longAt.timeIntervalSince(microAt) >= microYieldWindow {
+        // Mirror `due`: a movement break that would land within the yield
+        // window of the longer break is folded into it.
+        if microAt < longAt, longAt.timeIntervalSince(max(microAt, now)) >= microYieldWindow {
             return UpcomingBreak(kind: .microBreak, at: microAt)
         }
         return UpcomingBreak(kind: .longBreak, at: longAt)
