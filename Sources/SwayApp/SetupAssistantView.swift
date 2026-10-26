@@ -5,13 +5,22 @@ struct SetupAssistantView: View {
     @EnvironmentObject var model: AppModel
     @State private var selected: String
 
-    /// `initialItem` opens a specific item, e.g. the one a "This keeps
-    /// coming back" reminder points to.
+    /// `initialItem` opens a specific item, e.g. the one a workstation
+    /// suggestion ("Head down keeps coming back") points to.
     init(initialItem: String? = nil) {
         _selected = State(initialValue: WorkstationGuide.item(initialItem)?.id ?? WorkstationGuide.items.first!.id)
     }
 
     var body: some View {
+        content
+            // A workstation suggestion opens its item even when the
+            // window is already open on another one.
+            .onReceive(model.$setupFocus.compactMap { $0 }) { focus in
+                if let item = WorkstationGuide.item(focus) { selected = item.id }
+            }
+    }
+
+    private var content: some View {
         HStack(spacing: 0) {
             List(selection: $selected) {
                 Section {

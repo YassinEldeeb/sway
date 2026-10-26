@@ -70,6 +70,10 @@ let notificationTests: [TestCase] = [
         expectEqual(issue, .headDown)
         expectEqual(issue.map(ReminderKind.setupItem(for:)), "monitor-height")
         expectEqual(PostureReminders.setupIssue(of: "micro@123"), nil)
+        for issue in PostureIssue.allCases {
+            let id = ReminderKind.setupItem(for: issue)
+            expectEqual(WorkstationGuide.item(id)?.id, id, "\(issue) opens a setup item that exists")
+        }
     },
     TestCase(name: "a posture notification is removed once the user has changed position") {
         var c = Coach()

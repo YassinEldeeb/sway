@@ -145,7 +145,7 @@ final class WindowManager: NSObject, NSWindowDelegate {
             case .settings: return ("Sway Settings", NSSize(width: 620, height: 560), AnyView(SettingsView()))
             case .calibration: return ("Posture Calibration", NSSize(width: 640, height: 600), AnyView(CalibrationView()))
             case .routine: return ("Movement", NSSize(width: 560, height: 620), AnyView(RoutinePlayerView(routine: nil)))
-            case .setup: return ("Workstation Setup", NSSize(width: 760, height: 660), AnyView(SetupAssistantView()))
+            case .setup: return ("Workstation Setup", NSSize(width: 760, height: 660), AnyView(SetupAssistantView(initialItem: model.setupFocus)))
             case .onboarding: return ("Welcome to Sway", NSSize(width: 560, height: 560), AnyView(OnboardingView()))
             }
         }()
