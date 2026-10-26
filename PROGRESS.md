@@ -4,7 +4,7 @@ Last updated: 2026-10-26.
 
 ## Status
 
-All five phases are implemented, the app builds and runs, and 71 automated
+All five phases are implemented, the app builds and runs, and 72 automated
 tests pass. A fresh-eyes review found 16 defects; all are fixed (see "Review
 fixes"). What still needs hardware, permissions or a person is listed
 under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
@@ -38,7 +38,7 @@ under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
 ## Test results
 
 `swift build --product sway-tests && .build/debug/sway-tests`, last run
-2026-10-26: **71 passed, 0 failed, 281 checks, ~1.5 s.**
+2026-10-26: **72 passed, 0 failed, 289 checks, ~1.7 s.**
 
 Covered: activity-session calculations; break scheduling; sleep/wake (two
 hours of sleep, a missed sleep notification, sleep while away); midnight

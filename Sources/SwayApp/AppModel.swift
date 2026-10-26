@@ -187,6 +187,7 @@ final class AppModel: ObservableObject {
     var attention: DueReminder? { decision.deliver ?? decision.passive.first }
 
     var activeIssues: [ActiveIssue] { cameraState.isRunning ? posture.activeIssues() : [] }
+    var buildingIssues: [BuildingIssue] { cameraState.isRunning ? posture.buildingIssues() : [] }
 
     /// Today's active time including the stretch in progress.
     var longestStretchToday: TimeInterval {

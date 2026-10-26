@@ -203,6 +203,10 @@ struct MenuView: View {
         switch model.cameraState {
         case .running:
             if let issue = model.activeIssues.first { return "\(model.posture.status.label) · \(issue.issue.title.lowercased())" }
+            if let b = model.buildingIssues.first {
+                let n = Int(b.remaining(at: Date()).rounded(.up))
+                return "\(b.issue.title) · counts in \(n / 60):\(String(format: "%02d", n % 60))"
+            }
             return model.posture.status.label
         default:
             return model.cameraState.label

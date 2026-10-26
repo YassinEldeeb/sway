@@ -27,7 +27,7 @@ Install to `/Applications` before enabling launch at login.
 Run the tests:
 
 ```bash
-swift build --product sway-tests && .build/debug/sway-tests     # 71 tests
+swift build --product sway-tests && .build/debug/sway-tests     # 72 tests
 .build/debug/sway-tests posture                                 # filter by name
 ```
 

@@ -61,6 +61,15 @@ public struct ActiveIssue: Equatable, Sendable {
     public var since: Date
 }
 
+/// A deviation that is over its threshold but hasn't lasted long enough to
+/// count yet: it becomes an episode at `since + needed` unless it eases off.
+public struct BuildingIssue: Equatable, Sendable {
+    public var issue: PostureIssue
+    public var since: Date
+    public var needed: TimeInterval
+    public func remaining(at now: Date) -> TimeInterval { max(0, needed - now.timeIntervalSince(since)) }
+}
+
 /// Converts observations into sustained-deviation episodes against the
 /// user's calibration. Deterministic: same observations, same output.
 public struct PostureEngine: Sendable {
@@ -248,6 +257,16 @@ public struct PostureEngine: Sendable {
         guard status == .tracking || status == .lookingAway else { return [] }
         return PostureIssue.allCases.compactMap { issue in
             detectors[issue]?.activeSince.map { ActiveIssue(issue: issue, since: $0) }
+        }
+    }
+
+    /// Deviations over their threshold that are still being timed. Same
+    /// reliability gate as `activeIssues()`.
+    public func buildingIssues() -> [BuildingIssue] {
+        guard status == .tracking || status == .lookingAway else { return [] }
+        return PostureIssue.allCases.compactMap { issue in
+            guard let d = detectors[issue], let since = d.pendingSince else { return nil }
+            return BuildingIssue(issue: issue, since: since, needed: d.minDuration)
         }
     }
 

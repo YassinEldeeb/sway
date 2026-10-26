@@ -142,6 +142,22 @@ let postureTests: [TestCase] = [
         expectClose(run.ended.first?.duration ?? 0, 8 * 60, tolerance: 40)
         expect(run.engine.activeIssues().isEmpty)
     },
+    TestCase(name: "a lean over the line shows as building until it has lasted long enough") {
+        var run = PostureRun()
+        run.feed(60) { $0.obs() }
+        expect(!run.engine.buildingIssues().contains { $0.issue == .forwardLean })
+        let leanStart = run.synth.t
+        run.feed(2 * 60) { $0.obs(lean: 0.3) }
+        let b = run.engine.buildingIssues().filter { $0.issue == .forwardLean }
+        expectEqual(b.count, 1)
+        expectEqual(b.first?.needed, 5 * 60)
+        expectClose(b.first?.remaining(at: run.synth.t) ?? 0, 3 * 60, tolerance: 15)
+        expectClose(b.first?.since.timeIntervalSince(leanStart) ?? 999, 0, tolerance: 15)
+        expect(run.engine.activeIssues().isEmpty, "not counted yet")
+        run.feed(4 * 60) { $0.obs(lean: 0.3) }
+        expect(!run.engine.buildingIssues().contains { $0.issue == .forwardLean }, "now an episode instead")
+        expectEqual(run.engine.activeIssues().map(\.issue), [.forwardLean])
+    },
     TestCase(name: "changing position frequently produces no posture episode") {
         var run = PostureRun()
         for i in 0..<20 {

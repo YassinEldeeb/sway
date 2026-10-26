@@ -337,11 +337,13 @@ private struct DiagnosticsView: View {
             }
             Section("Live posture estimate (vs. calibration)") {
                 let m = model.posture.metrics
-                row("Head down score", m.headDown.map { String(format: "%.2f (counts at %.2f)", $0, model.settings.headDown.enter) } ?? "—")
-                row("Lean toward screen", m.forwardLean.map { String(format: "%+.0f%% face size (counts at %.0f%%)", $0 * 100, model.settings.forwardLean.enter * 100) } ?? "—")
-                row("Head tilt", m.lateralTilt.map { String(format: "%.0f° (counts at %.0f°)", $0, model.settings.lateralTilt.enter) } ?? "—")
-                row("Shoulder line", m.shoulderAsymmetry.map { String(format: "%.0f° (counts at %.0f°)", $0, model.settings.shoulderAsymmetry.enter) } ?? "—")
-                row("Movement (5 min)", m.motion.map { String(format: "%.3f (still below %.3f)", $0, model.settings.staticMotionThreshold) } ?? "—")
+                row("Head down score", m.headDown.map { reading(.headDown, String(format: "%.2f", $0), over: $0 >= model.settings.headDown.enter, line: String(format: "%.2f", model.settings.headDown.enter)) } ?? "—")
+                row("Lean toward screen", m.forwardLean.map { reading(.forwardLean, String(format: "%+.0f%% face size", $0 * 100), over: $0 >= model.settings.forwardLean.enter, line: String(format: "%.0f%%", model.settings.forwardLean.enter * 100)) } ?? "—")
+                row("Head tilt", m.lateralTilt.map { reading(.lateralTilt, String(format: "%.0f°", $0), over: $0 >= model.settings.lateralTilt.enter, line: String(format: "%.0f°", model.settings.lateralTilt.enter)) } ?? "—")
+                row("Shoulder line", m.shoulderAsymmetry.map { reading(.shoulderAsymmetry, String(format: "%.0f°", $0), over: $0 >= model.settings.shoulderAsymmetry.enter, line: String(format: "%.0f°", model.settings.shoulderAsymmetry.enter)) } ?? "—")
+                row("Movement (5 min)", m.motion.map { movement($0) } ?? "—")
+                Text("Over the line isn't a problem yet: it has to stay there for the set time (Posture tab) before it counts, and you're told only after that.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Signals") {
                 row("Idle for", String(format: "%.0f s", SystemSignals.idleSeconds()))
@@ -351,6 +353,37 @@ private struct DiagnosticsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    /// Says where a reading stands: under the line, over it and being
+    /// timed, or counted as a sustained episode.
+    private func reading(_ issue: PostureIssue, _ value: String, over: Bool, line: String) -> String {
+        if let a = model.activeIssues.first(where: { $0.issue == issue }) {
+            return "\(value) · counted since \(a.since.formatted(date: .omitted, time: .shortened))"
+        }
+        if let b = model.buildingIssues.first(where: { $0.issue == issue }) {
+            return "\(value) · over \(line), counts in \(clock(b.remaining(at: Date())))"
+        }
+        return over ? "\(value) · over \(line)" : "\(value) · under \(line)"
+    }
+
+    /// Little movement counts when the value is *below* the line, unlike the
+    /// other readings.
+    private func movement(_ v: Double) -> String {
+        let line = String(format: "%.3f", model.settings.staticMotionThreshold)
+        let value = String(format: "%.3f", v)
+        if let a = model.activeIssues.first(where: { $0.issue == .staticPosture }) {
+            return "\(value) · still since \(a.since.formatted(date: .omitted, time: .shortened))"
+        }
+        if let b = model.buildingIssues.first(where: { $0.issue == .staticPosture }) {
+            return "\(value) · still (under \(line)), counts in \(clock(b.remaining(at: Date())))"
+        }
+        return v < model.settings.staticMotionThreshold ? "\(value) · still (under \(line))" : "\(value) · moving (still is under \(line))"
+    }
+
+    private func clock(_ s: TimeInterval) -> String {
+        let n = Int(s.rounded(.up))
+        return String(format: "%d:%02d", n / 60, n % 60)
     }
 
     private func row(_ label: String, _ value: String) -> some View {

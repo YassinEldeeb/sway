@@ -131,6 +131,10 @@ public struct SustainedDetector: Codable, Equatable, Sendable {
 
     public var activeSince: Date? { if case .active(let s, _, _) = phase { return s } else { return nil } }
 
+    /// Start of a deviation that is over `enter` but hasn't lasted
+    /// `minDuration` yet.
+    public var pendingSince: Date? { if case .pending(let s, _) = phase { return s } else { return nil } }
+
     public mutating func update(_ value: Double?, at t: Date) -> [Event] {
         var events: [Event] = []
         if let last = lastKnown, t.timeIntervalSince(last) > maxUnknownGap {
