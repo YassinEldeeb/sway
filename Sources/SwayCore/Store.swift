@@ -112,16 +112,16 @@ public struct DailyRecord: Codable, Equatable, Sendable {
         day = try c.decode(String.self, forKey: .day)
         activeSeconds = c.lenient(Double.self, .activeSeconds) ?? 0
         stretches = c.lenient([Double].self, .stretches) ?? []
-        breaks = c.lenient([BreakRecord].self, .breaks) ?? []
-        postureSeconds = c.lenient([PostureIssue: Double].self, .postureSeconds) ?? [:]
-        postureEpisodes = c.lenient([PostureIssue: Int].self, .postureEpisodes) ?? [:]
+        breaks = c.lenientList(BreakRecord.self, .breaks) ?? []
+        postureSeconds = c.lenientMap(PostureIssue.self, Double.self, .postureSeconds) ?? [:]
+        postureEpisodes = c.lenientMap(PostureIssue.self, Int.self, .postureEpisodes) ?? [:]
         cameraSeconds = c.lenient(Double.self, .cameraSeconds) ?? 0
         cameraReliableSeconds = c.lenient(Double.self, .cameraReliableSeconds) ?? 0
-        prompts = c.lenient([ReminderKind: ResponseCounts].self, .prompts) ?? [:]
+        prompts = c.lenientMap(ReminderKind.self, ResponseCounts.self, .prompts) ?? [:]
         routinesCompleted = c.lenient(Int.self, .routinesCompleted) ?? 0
         comfort = c.lenient(ComfortCheckIn.self, .comfort)
-        log = c.lenient([LogEntry].self, .log) ?? []
-        frequentPatterns = c.lenient([PostureIssue: FrequentFlag].self, .frequentPatterns) ?? [:]
+        log = c.lenientList(LogEntry.self, .log) ?? []
+        frequentPatterns = c.lenientMap(PostureIssue.self, FrequentFlag.self, .frequentPatterns) ?? [:]
     }
 
     public var longestStretch: Double { stretches.max() ?? 0 }

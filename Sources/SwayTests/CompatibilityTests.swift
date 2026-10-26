@@ -52,6 +52,28 @@ private func storeWith(_ files: [String: String]) throws -> SwayStore {
 }
 
 let compatibilityTests: [TestCase] = [
+    TestCase(name: "an unknown kind in a saved map or list costs only that entry") {
+        let state = """
+        { "engine" : { "silencedUntil" : { "headDown" : "2099-01-01T00:00:00.000Z", "futureKind" : "2099-01-01T00:00:00.000Z" } },
+          "decisionLog" : { "entries" : [ { "at" : "2026-10-26T09:00:00.000Z", "kind" : "futureKind", "text" : "dropped" },
+                                          { "at" : "2026-10-26T09:01:00.000Z", "kind" : "microBreak", "text" : "kept" } ] } }
+        """
+        let day = """
+        { "day" : "2026-10-25", "activeSeconds" : 10,
+          "postureEpisodes" : { "headDown" : 2, "futureIssue" : 1 },
+          "postureSeconds" : { "headDown" : 700, "futureIssue" : 30 },
+          "log" : [ { "at" : "2026-10-25T09:00:00.000Z", "text" : "kept" }, { "at" : "not a date", "text" : "dropped" } ] }
+        """
+        let store = try storeWith(["state.json": state, "days/2026-10-25.json": day])
+        let r = store.loadRuntime()
+        let c = DueReminder(kind: .headDown, dueAt: t0, instanceID: "h", level: .notify, title: "", body: "", priority: 60)
+        expectEqual(r.engine.blocker(c, now: t0, settings: CoachSettings()), .silencedToday, "the head-down silence survives")
+        expectEqual(r.decisionLog.entries.map(\.text), ["kept"])
+        let d = store.loadDay("2026-10-25")
+        expectEqual(d?.postureEpisodes[.headDown], 2)
+        expectEqual(d?.postureSeconds[.headDown], 700)
+        expectEqual(d?.log.map(\.text), ["kept"])
+    },
     TestCase(name: "state saved by the previous version keeps its timers and history") {
         let store = try storeWith(["state.json": oldState])
         let r = store.loadRuntime()

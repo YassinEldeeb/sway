@@ -197,7 +197,7 @@ let schedulingTests: [TestCase] = [
         s.quietHoursStartMinute = 8 * 60
         s.quietHoursEndMinute = 10 * 60
         var cal = Calendar(identifier: .gregorian)
-        cal.timeZone = .current
+        cal.timeZone = Calendar.current.timeZone
         let nine = cal.date(bySettingHour: 9, minute: 0, second: 0, of: t0)!
         expectEqual(e.decide(candidates: r, now: nine, context: .init(), settings: s).hold, .quietHours)
     },

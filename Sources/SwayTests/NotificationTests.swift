@@ -197,6 +197,23 @@ let notificationTests: [TestCase] = [
         let tomorrow = t0 + 86_400
         expectEqual(e.blocker(later, now: tomorrow, settings: s), nil, "back the next day")
     },
+    TestCase(name: "on a 25-hour daylight-saving day, silence still lasts until midnight") {
+        NSTimeZone.default = TimeZone(identifier: "Europe/Lisbon")!
+        defer { NSTimeZone.default = TimeZone(identifier: "UTC")! }
+        // 2026-10-25 in Lisbon: clocks go back at 02:00, so the day has 25 h.
+        let morning = ISO8601DateFormatter().date(from: "2026-10-25T10:00:00Z")!
+        var e = InterventionEngine()
+        for i in 0..<3 {
+            let r = reminder(.headDown, "d\(i)", at: morning)
+            e.recordDelivered(r, at: morning + Double(i) * 1800)
+            e.record(.dismissed, kind: .headDown, instanceID: r.instanceID, now: morning + Double(i) * 1800)
+        }
+        let later = reminder(.headDown, "d9", at: morning)
+        let lateEvening = ISO8601DateFormatter().date(from: "2026-10-25T23:30:00Z")!   // 23:30 local
+        expectEqual(e.blocker(later, now: lateEvening, settings: CoachSettings()), .silencedToday)
+        let nextDay = ISO8601DateFormatter().date(from: "2026-10-26T00:30:00Z")!
+        expectEqual(e.blocker(later, now: nextDay, settings: CoachSettings()), nil)
+    },
     TestCase(name: "yesterday's dismissals don't lengthen today's cooldown") {
         var e = InterventionEngine()
         let s = CoachSettings()

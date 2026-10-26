@@ -31,9 +31,9 @@ public struct DecisionLog: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        entries = c.lenient([DecisionLogEntry].self, .entries) ?? []
+        entries = c.lenientList(DecisionLogEntry.self, .entries) ?? []
         lastState = c.lenient([String: String].self, .lastState) ?? [:]
-        lastKind = c.lenient([String: ReminderKind].self, .lastKind) ?? [:]
+        lastKind = (c.lenient([String: Lossy<ReminderKind>].self, .lastKind) ?? [:]).compactMapValues(\.value)
         lastHold = c.lenient(String.self, .lastHold)
     }
 

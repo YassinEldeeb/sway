@@ -193,13 +193,13 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         deliveries = c.lenient([Date].self, .deliveries) ?? []
-        lastDeliveredByKind = c.lenient([ReminderKind: Date].self, .lastDeliveredByKind) ?? [:]
+        lastDeliveredByKind = c.lenientMap(ReminderKind.self, Date.self, .lastDeliveredByKind) ?? [:]
         deliveredInstances = c.lenient([String: Date].self, .deliveredInstances) ?? [:]
         snoozes = c.lenient([String: Snooze].self, .snoozes) ?? [:]
-        streaks = c.lenient([ReminderKind: Streak].self, .streaks) ?? [:]
-        silencedUntil = c.lenient([ReminderKind: Date].self, .silencedUntil) ?? [:]
+        streaks = c.lenientMap(ReminderKind.self, Streak.self, .streaks) ?? [:]
+        silencedUntil = c.lenientMap(ReminderKind.self, Date.self, .silencedUntil) ?? [:]
         answeredInstances = c.lenient([String: Date].self, .answeredInstances) ?? [:]
-        posted = c.lenient([ReminderKind: String].self, .posted) ?? [:]
+        posted = c.lenientMap(ReminderKind.self, String.self, .posted) ?? [:]
         heldAt = c.lenient(Date.self, .heldAt)
     }
 
@@ -371,7 +371,9 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
             // growing cooldown instead of starting over.
             if count >= Self.silenceAfterStreak, kind != .longSession {
                 // Back off to the menu bar for the rest of the day.
-                let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(86_400)
+                // Next midnight, also on 23- and 25-hour daylight-saving days.
+                let start = Calendar.current.startOfDay(for: now)
+                let endOfDay = Calendar.current.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
                 silencedUntil[kind] = endOfDay
                 streaks[kind] = nil
             }
