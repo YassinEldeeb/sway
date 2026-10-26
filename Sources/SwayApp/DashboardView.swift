@@ -153,7 +153,17 @@ private struct PostureBreakdown: View {
                         .font(.system(size: 12)).foregroundStyle(.secondary)
                     Button("Set up posture monitoring") { WindowManager.shared.show(.calibration) }.buttonStyle(PillButtonStyle())
                 } else {
-                    let rows = PostureIssue.allCases.map { ($0, record.postureSeconds[$0] ?? 0, record.postureEpisodes[$0] ?? 0) }
+                    let rows = PostureIssue.allCases.map { issue -> (PostureIssue, Double, Int) in
+                        // Finished episodes are saved when they end; add the
+                        // one happening now so it shows while it lasts.
+                        var secs = record.postureSeconds[issue] ?? 0
+                        var count = record.postureEpisodes[issue] ?? 0
+                        if let a = live.active.first(where: { $0.issue == issue }) {
+                            secs += max(0, Date().timeIntervalSince(a.since))
+                            count += 1
+                        }
+                        return (issue, secs, count)
+                    }
                     let maxV = max(rows.map(\.1).max() ?? 0, 60)
                     ForEach(rows, id: \.0) { issue, secs, count in
                         VStack(alignment: .leading, spacing: 3) {
@@ -161,7 +171,7 @@ private struct PostureBreakdown: View {
                                 Text(issue.title).font(.system(size: 12))
                                     .help(issue.definition)
                                 Spacer()
-                                Text(secs > 0 ? "\(Format.duration(secs)) · \(count)×" : "—").font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
+                                Text(value(issue, secs, count)).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()
                             }
                             GeometryReader { g in
                                 Capsule().fill(Color.secondary.opacity(0.12))
@@ -172,11 +182,27 @@ private struct PostureBreakdown: View {
                             .frame(height: 5)
                         }
                     }
-                    Text("Camera-relative estimates against your calibration — not spinal measurements.")
+                    Text("Camera-relative estimates against your calibration — not spinal measurements. A position counts once it has lasted the time set in Settings → Posture.")
                         .font(.system(size: 10.5)).foregroundStyle(.tertiary)
                 }
             }
         }
+    }
+
+    /// Live state applies only to today's record.
+    private var live: (active: [ActiveIssue], building: [BuildingIssue]) {
+        guard record.day == DayKey.key(Date()) else { return ([], []) }
+        return (model.activeIssues, model.buildingIssues)
+    }
+
+    private func value(_ issue: PostureIssue, _ secs: Double, _ count: Int) -> String {
+        let now = live.active.contains { $0.issue == issue } ? " · now" : ""
+        if secs > 0 { return "\(Format.duration(secs)) · \(count)×\(now)" }
+        if let b = live.building.first(where: { $0.issue == issue }) {
+            let n = Int(b.remaining(at: Date()).rounded(.up))
+            return "now · counts in \(n / 60):\(String(format: "%02d", n % 60))"
+        }
+        return "—"
     }
 }
 
