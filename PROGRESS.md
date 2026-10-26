@@ -170,8 +170,8 @@ threshold (calculated, not re-run).
 - Uneven-shoulder detection needs both shoulders in frame, which most laptop
   cameras don't show.
 - Ad-hoc signing: `build-app.sh` now signs with the bundle id as the
-  designated requirement, so a rebuild should keep the camera permission
-  (not yet confirmed across a rebuild). If macOS still resets it, Sway asks
+  designated requirement, so a rebuild keeps the camera permission (seen
+  once on 2026-10-26: the camera ran again right after a reinstall). If macOS still resets it, Sway asks
   again at launch instead of staying silently off. A Developer ID signature
   is the proper fix for distribution.
 - Tests run through a small custom runner because the Command Line Tools on
