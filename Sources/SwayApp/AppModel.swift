@@ -95,12 +95,19 @@ final class AppModel: ObservableObject {
     @Published private(set) var now = Date()
     @Published private(set) var context = InterruptionContext()
     @Published private(set) var guidedBreak: GuidedBreak?
-    @Published private(set) var suspended = false
+    @Published private(set) var suspendReasons: Set<SuspendReason> = []
+    var suspended: Bool { !suspendReasons.isEmpty }
     @Published private(set) var cameraAuthorization = CameraService.authorization()
     @Published var calibrationSession: CalibrationSession?
     @Published var launchAtLoginMessage: String?
 
     private var ledger = Ledger()
+    private var sleepClock = SleepClock()
+    private var appNapToken: NSObjectProtocol?
+    private var latestVisionStats = VisionStats()
+    private var lastObservationAt: Date?
+    /// Past days for trends and personalization, refreshed on persist.
+    private var pastDays: [DailyRecord] = []
     private var timer: Timer?
     private var lastSave = Date.distantPast
     private var lastContextCheck = Date.distantPast
@@ -119,16 +126,20 @@ final class AppModel: ObservableObject {
         settings = store.loadSettings()
         runtime = store.loadRuntime()
         calibration = store.loadCalibration()
+        let store = self.store
+        ledger.loader = { store.loadDay($0) }
         let today = DayKey.key(Date())
         if let r = store.loadDay(today) { ledger.records[today] = r }
+        // A guided break can't survive a relaunch (its timer is gone).
+        if runtime.tracker.guidedBreakStart != nil { runtime.tracker.cancelGuidedBreak() }
+        suspendReasons = PowerObserver.currentReasons()
         context.pausedUntil = runtime.pausedUntil
         posture.configure(calibration: calibration, cameraID: calibration?.cameraID, settings: settings)
 
         camera.onState = { [weak self] s in self?.cameraStateChanged(s) }
         camera.onObservation = { [weak self] o in self?.observe(o) }
-        camera.onStats = { [weak self] s in self?.visionStats = s }
-        power.onSuspend = { [weak self] in self?.systemSuspended() }
-        power.onResume = { [weak self] in self?.systemResumed() }
+        camera.onStats = { [weak self] s in self?.latestVisionStats = s }
+        power.onChange = { [weak self] reason, active in self?.powerChanged(reason, active: active) }
         notifications.onAction = { [weak self] action, response, instance, kind in
             self?.handle(action: action, response: response, instance: instance, kind: kind)
         }
@@ -141,6 +152,11 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        // A menu-bar app has no visible windows, so App Nap would delay the
+        // timer by minutes; the tick is tiny, so opt out (system sleep is
+        // still allowed).
+        appNapToken = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep], reason: "Tracking activity for break reminders")
+        reloadPastDays()
         notifications.setUp()
         recomputePersonalization()
         recomputePatterns()
@@ -177,10 +193,15 @@ final class AppModel: ObservableObject {
         max(today.longestStretch, runtime.tracker.sessionStart.map { Calendar.current.isDate($0, inSameDayAs: now) ? continuousWork : 0 } ?? 0)
     }
 
+    /// The last `days` days, oldest first, ending with today (from memory).
     func history(days: Int) -> [DailyRecord] {
-        var list = store.recent(days: days, now: now)
-        if !list.isEmpty { list[list.count - 1] = today }
-        return list
+        // Days changed in memory (e.g. yesterday, when an overnight absence
+        // closes in the morning) win over the cached copy.
+        Array(pastDays.suffix(max(0, days - 1))).map { ledger.records[$0.day] ?? $0 } + [today]
+    }
+
+    private func reloadPastDays() {
+        pastDays = Array(store.recent(days: 31, now: now).dropLast())
     }
 
     func canSnooze(_ r: DueReminder) -> Bool { runtime.engine.canSnooze(r.instanceID, settings: settings) }
@@ -194,12 +215,17 @@ final class AppModel: ObservableObject {
             persist()
             currentDay = day
             ledger.records = ledger.records.filter { $0.key >= day }
+            reloadPastDays()
             recomputePatterns()
             recomputePersonalization()
         }
+        reconcileSuspension()
+        let slept = sleepClock.sleptSinceLastCall()
         if !suspended {
-            apply(runtime.tracker.tick(now: now, idleSeconds: SystemSignals.idleSeconds(), settings: settings))
+            apply(runtime.tracker.tick(now: now, idleSeconds: SystemSignals.idleSeconds(), settings: settings, sleptDuringGap: slept))
         }
+        visionStats = latestVisionStats
+        watchCameraHealth()
         if now.timeIntervalSince(lastContextCheck) >= 10 { refreshContext() }
         updateCamera()
         accountCamera()
@@ -224,10 +250,11 @@ final class AppModel: ObservableObject {
 
     private func refreshContext() {
         lastContextCheck = now
-        let ownCamera = cameraState.isRunning ? camera.currentDeviceID : nil
-        var others = SystemSignals.runningCameraUIDs()
-        if let own = ownCamera { others.remove(own) }
-        context.micOrCameraInUseByOthers = SystemSignals.microphoneInUse() || !others.isEmpty
+        // While Sway's own camera is on (or starting), "a camera is running"
+        // can't be attributed to another app, so only the microphone counts.
+        let ownCameraActive = cameraState.isRunning || cameraState == .starting || calibrationSession != nil
+        let otherCamera = ownCameraActive ? false : !SystemSignals.runningCameraUIDs().isEmpty
+        context.micOrCameraInUseByOthers = SystemSignals.microphoneInUse() || otherCamera
         context.fullScreenAppInFront = SystemSignals.fullScreenAppInFront()
         context.pausedUntil = runtime.pausedUntil
         cameraAuthorization = CameraService.authorization()
@@ -340,6 +367,7 @@ final class AppModel: ObservableObject {
 
     private func cameraStateChanged(_ s: CameraState) {
         cameraState = s
+        if s.isRunning { lastObservationAt = nil }
         if !s.isRunning { lastCameraAccounting = nil }
         if case .unavailable = s { stopPosture(status: .off) }
         if s == .unauthorized { cameraAuthorization = CameraService.authorization() }
@@ -354,7 +382,23 @@ final class AppModel: ObservableObject {
         lastCameraAccounting = now
     }
 
+    /// Frames stopped arriving while the camera claims to run (a stalled
+    /// device, a lost start/stop race): don't keep showing a frozen posture
+    /// state; stop and restart the camera.
+    private func watchCameraHealth() {
+        guard cameraState.isRunning, calibrationSession == nil else { return }
+        let limit = max(30, cameraInterval * 5)
+        let last = lastObservationAt ?? camera.runningSince ?? now
+        if now.timeIntervalSince(last) > limit {
+            stopPosture(status: .searching)
+            camera.stop()
+            lastObservationAt = nil
+            lastCameraAttempt = .distantPast
+        }
+    }
+
     private func observe(_ o: PostureObservation) {
+        lastObservationAt = o.timestamp
         if let session = calibrationSession {
             session.add(o, minConfidence: settings.minFaceConfidence)
             return
@@ -420,24 +464,41 @@ final class AppModel: ObservableObject {
         tick()
     }
 
-    // MARK: Sleep / wake
+    // MARK: Sleep / wake / lock
 
-    private func systemSuspended() {
-        guard !suspended else { return }
-        suspended = true
-        apply(runtime.tracker.suspend(now: Date(), idleSeconds: SystemSignals.idleSeconds(), settings: settings))
-        camera.stop()
-        stopPosture(status: .off)
-        persist()
+    private func powerChanged(_ reason: SuspendReason, active: Bool) {
+        var reasons = suspendReasons
+        if active { reasons.insert(reason) } else { reasons.remove(reason) }
+        setSuspendReasons(reasons)
     }
 
-    private func systemResumed() {
-        guard suspended else { return }
-        suspended = false
-        runtime.tracker.resume(now: Date())
-        lastCameraAttempt = .distantPast
-        cameraAuthorization = CameraService.authorization()
-        tick()
+    /// Notifications can be missed; the lock, session and display state can
+    /// be read directly. "Asleep" is cleared by the timer running at all.
+    private func reconcileSuspension() {
+        var reasons = PowerObserver.currentReasons()
+        if suspendReasons.contains(.sleep), Date().timeIntervalSince(sleepSince ?? .distantPast) < 15 {
+            reasons.insert(.sleep)
+        }
+        setSuspendReasons(reasons)
+    }
+
+    private var sleepSince: Date?
+
+    private func setSuspendReasons(_ reasons: Set<SuspendReason>) {
+        let was = suspended
+        if reasons.contains(.sleep), !suspendReasons.contains(.sleep) { sleepSince = Date() }
+        suspendReasons = reasons
+        if !was, suspended {
+            apply(runtime.tracker.suspend(now: Date(), idleSeconds: SystemSignals.idleSeconds(), settings: settings))
+            camera.stop()
+            stopPosture(status: .off)
+            persist()
+        } else if was, !suspended {
+            runtime.tracker.resume(now: Date())
+            lastCameraAttempt = .distantPast
+            cameraAuthorization = CameraService.authorization()
+            _ = sleepClock.sleptSinceLastCall()
+        }
     }
 
     // MARK: Responses
@@ -460,7 +521,7 @@ final class AppModel: ObservableObject {
         if response == .snoozed {
             runtime.engine.snooze(instance, kind: kind, now: t, settings: settings)
         }
-        runtime.engine.record(response, kind: kind, now: t)
+        runtime.engine.record(response, kind: kind, instanceID: instance.isEmpty ? nil : instance, now: t)
         ledger.responded(kind, response, at: t)
         if response != .helpful { notifications.clear(kind) }
         if response == .unhelpful || response == .dismissed { recomputePersonalization() }
@@ -475,8 +536,9 @@ final class AppModel: ObservableObject {
 
     func startGuidedBreak(minutes: Double = 3) {
         let t = Date()
-        runtime.tracker.beginGuidedBreak(at: t)
-        guidedBreak = GuidedBreak(start: t, end: t.addingTimeInterval(minutes * 60))
+        let end = t.addingTimeInterval(minutes * 60)
+        runtime.tracker.beginGuidedBreak(at: t, until: end)
+        guidedBreak = GuidedBreak(start: t, end: end)
         notifications.clearAll()
     }
 
@@ -598,7 +660,9 @@ final class AppModel: ObservableObject {
         stopPosture(status: .notCalibrated)
         notifications.clearAll()
         try? store.deleteAll()
-        ledger = Ledger()
+        let store = self.store
+        ledger = Ledger(loader: { store.loadDay($0) })
+        pastDays = []
         runtime = RuntimeState()
         calibration = nil
         adjustments = .neutral

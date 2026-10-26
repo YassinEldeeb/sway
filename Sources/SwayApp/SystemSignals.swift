@@ -96,41 +96,73 @@ enum SystemSignals {
     }
 }
 
-/// Sleep, wake, lock and fast-user-switch transitions.
+enum SuspendReason: String {
+    case sleep, displays, locked, sessionInactive
+}
+
+/// Sleep, wake, lock, display and fast-user-switch transitions, reported per
+/// reason so that, say, the display waking at the lock screen doesn't count
+/// as the user coming back.
 final class PowerObserver {
-    var onSuspend: (() -> Void)?
-    var onResume: (() -> Void)?
-    private var tokens: [NSObjectProtocol] = []
+    var onChange: ((SuspendReason, _ active: Bool) -> Void)?
+    private var tokens: [(NotificationCenter, NSObjectProtocol)] = []
 
     init() {
         let ws = NSWorkspace.shared.notificationCenter
         let dnc = DistributedNotificationCenter.default()
-        let suspend: [(NotificationCenter, Notification.Name)] = [
-            (ws, NSWorkspace.willSleepNotification),
-            (ws, NSWorkspace.screensDidSleepNotification),
-            (ws, NSWorkspace.sessionDidResignActiveNotification),
-            (dnc, Notification.Name("com.apple.screenIsLocked")),
+        let events: [(NotificationCenter, Notification.Name, SuspendReason, Bool)] = [
+            (ws, NSWorkspace.willSleepNotification, .sleep, true),
+            (ws, NSWorkspace.didWakeNotification, .sleep, false),
+            (ws, NSWorkspace.screensDidSleepNotification, .displays, true),
+            (ws, NSWorkspace.screensDidWakeNotification, .displays, false),
+            (ws, NSWorkspace.sessionDidResignActiveNotification, .sessionInactive, true),
+            (ws, NSWorkspace.sessionDidBecomeActiveNotification, .sessionInactive, false),
+            (dnc, Notification.Name("com.apple.screenIsLocked"), .locked, true),
+            (dnc, Notification.Name("com.apple.screenIsUnlocked"), .locked, false),
         ]
-        let resume: [(NotificationCenter, Notification.Name)] = [
-            (ws, NSWorkspace.didWakeNotification),
-            (ws, NSWorkspace.screensDidWakeNotification),
-            (ws, NSWorkspace.sessionDidBecomeActiveNotification),
-            (dnc, Notification.Name("com.apple.screenIsUnlocked")),
-        ]
-        for (center, name) in suspend {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.onSuspend?() })
-        }
-        for (center, name) in resume {
-            tokens.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.onResume?() })
+        for (center, name, reason, active) in events {
+            let t = center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.onChange?(reason, active) }
+            tokens.append((center, t))
         }
     }
 
     deinit {
-        let ws = NSWorkspace.shared.notificationCenter
-        for t in tokens {
-            ws.removeObserver(t)
-            DistributedNotificationCenter.default().removeObserver(t)
+        for (center, t) in tokens { center.removeObserver(t) }
+    }
+
+    /// The current lock / session / display state, read directly, so a missed
+    /// notification can't leave Sway stuck in either direction.
+    static func currentReasons() -> Set<SuspendReason> {
+        var out = Set<SuspendReason>()
+        if let dict = CGSessionCopyCurrentDictionary() as? [String: Any] {
+            if (dict["CGSSessionScreenIsLocked"] as? Bool) == true { out.insert(.locked) }
+            if let onConsole = dict[kCGSessionOnConsoleKey as String] as? Bool, !onConsole { out.insert(.sessionInactive) }
         }
+        if CGDisplayIsAsleep(CGMainDisplayID()) != 0 { out.insert(.displays) }
+        return out
+    }
+}
+
+/// Measures time the system spent asleep: the continuous clock keeps running
+/// during sleep, the absolute clock doesn't.
+struct SleepClock {
+    private var lastOffset: UInt64 = SleepClock.offset()
+
+    private static func offset() -> UInt64 {
+        mach_continuous_time() &- mach_absolute_time()
+    }
+
+    private static let nanosPerTick: Double = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return Double(info.numer) / Double(info.denom)
+    }()
+
+    /// Seconds asleep since the previous call.
+    mutating func sleptSinceLastCall() -> TimeInterval {
+        let now = Self.offset()
+        defer { lastOffset = now }
+        return Double(now &- lastOffset) * Self.nanosPerTick / 1e9
     }
 }
 

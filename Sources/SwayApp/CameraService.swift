@@ -52,7 +52,6 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     private var lastProcessed: TimeInterval = 0
     private var frameCounter = 0
     private var stats = VisionStats()
-    private var restartAttempts = 0
     /// Upper-body pose runs on every third processed frame; its result is
     /// carried to the frames in between while fresh.
     private var lastShoulders: (l: Point2, r: Point2, confidence: Double, at: TimeInterval)?
@@ -63,6 +62,15 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     var onStats: ((VisionStats) -> Void)?
 
     private(set) var currentDeviceID: String?
+    /// When the current start reported running (main thread).
+    private(set) var runningSince: Date?
+    /// Bumped by every start and stop (main thread). A start that completes
+    /// after a newer stop or start is discarded, so a late "running" can't
+    /// overwrite "off".
+    private var generation = 0
+    /// Main-thread copies, so recovery never waits on the capture queue.
+    private var mainInterval: TimeInterval = 2
+    private var restartAttempts = 0
 
     static func authorization() -> AVAuthorizationStatus { AVCaptureDevice.authorizationStatus(for: .video) }
 
@@ -101,7 +109,9 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     /// Process at most one frame per `seconds`.
     func setInterval(_ seconds: TimeInterval) {
-        queue.async { self.interval = max(0.1, seconds) }
+        mainInterval = max(0.1, seconds)
+        let v = mainInterval
+        queue.async { self.interval = v }
     }
 
     func start(deviceID: String?, interval: TimeInterval) {
@@ -120,13 +130,19 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         }
         onState?(.starting)
         currentDeviceID = device.uniqueID
+        mainInterval = interval
+        generation += 1
+        let gen = generation
         let name = device.localizedName
         queue.async {
             self.interval = interval
             self.configure(device: device)
+            self.setLowFrameRate(device)
             self.session.startRunning()
             let running = self.session.isRunning
             DispatchQueue.main.async {
+                guard gen == self.generation else { return }   // superseded
+                if running { self.runningSince = Date() }
                 self.onState?(running ? .running(name) : .unavailable("Couldn't start the camera"))
             }
         }
@@ -134,6 +150,8 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
 
     func stop() {
         currentDeviceID = nil
+        runningSince = nil
+        generation += 1
         queue.async {
             if self.session.isRunning { self.session.stopRunning() }
             if let input = self.input {
@@ -156,11 +174,12 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             return
         }
         let delay = Double(1 << attempt) * 2
+        let gen = generation
         DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self else { return }
-            let interval = self.queue.sync { self.interval }
+            // Don't restart a camera that was stopped (or restarted) since.
+            guard let self, self.generation == gen, self.currentDeviceID == id else { return }
             self.currentDeviceID = nil
-            self.start(deviceID: id, interval: interval)
+            self.start(deviceID: id, interval: self.mainInterval)
         }
     }
 
@@ -185,25 +204,30 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
             output.setSampleBufferDelegate(self, queue: queue)
             if session.canAddOutput(output) { session.addOutput(output) }
         }
-        // Ask for the lowest frame rate the camera supports, down to 5 fps:
-        // fewer frames delivered means less work even before throttling.
-        if (try? device.lockForConfiguration()) != nil {
-            if let range = device.activeFormat.videoSupportedFrameRateRanges.min(by: { $0.minFrameRate < $1.minFrameRate }) {
-                let fps = max(range.minFrameRate, 5)
-                if fps <= range.maxFrameRate {
-                    device.activeVideoMinFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
-                    device.activeVideoMaxFrameDuration = CMTime(value: 1, timescale: CMTimeScale(fps))
-                }
-            }
-            device.unlockForConfiguration()
-        }
+    }
+
+    /// Ask for the lowest frame rate the camera supports, but not below 5 fps:
+    /// fewer frames delivered means less work even before throttling. Runs
+    /// after the session configuration is committed (the preset picks the
+    /// format), and only uses durations inside a supported range, so a
+    /// fractional rate like 7.5 or 29.97 fps can't be rejected.
+    private func setLowFrameRate(_ device: AVCaptureDevice) {
+        let ranges = device.activeFormat.videoSupportedFrameRateRanges
+        guard let range = ranges.max(by: { CMTimeCompare($0.maxFrameDuration, $1.maxFrameDuration) < 0 }) else { return }
+        let fiveFps = CMTime(value: 1, timescale: 5)
+        // The longest allowed duration, capped at 1/5 s, never shorter than the range's minimum.
+        var duration = CMTimeCompare(range.maxFrameDuration, fiveFps) > 0 ? fiveFps : range.maxFrameDuration
+        if CMTimeCompare(duration, range.minFrameDuration) < 0 { duration = range.minFrameDuration }
+        guard (try? device.lockForConfiguration()) != nil else { return }
+        device.activeVideoMinFrameDuration = duration
+        device.activeVideoMaxFrameDuration = duration
+        device.unlockForConfiguration()
     }
 
     func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer, from connection: AVCaptureConnection) {
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastProcessed >= interval, let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         lastProcessed = now
-        restartAttempts = 0
         frameCounter += 1
         let started = CFAbsoluteTimeGetCurrent()
         let includeBody = frameCounter % 3 == 1
@@ -225,6 +249,7 @@ final class CameraService: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
         stats.lastMs = ms
         let snapshot = stats
         DispatchQueue.main.async {
+            self.restartAttempts = 0
             self.onObservation?(observation)
             self.onStats?(snapshot)
         }

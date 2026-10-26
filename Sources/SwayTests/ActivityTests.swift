@@ -167,7 +167,7 @@ let activityTests: [TestCase] = [
         var sim = Sim()
         sim.work(55 * 60)
         let start = sim.now
-        sim.tracker.beginGuidedBreak(at: start)
+        sim.tracker.beginGuidedBreak(at: start, until: start + 180)
         sim.idle(3 * 60)      // timer ends while away
         _ = sim.tracker.finishGuidedBreak(at: sim.now, idleFraction: 1)
         sim.idle(60)
@@ -181,7 +181,7 @@ let activityTests: [TestCase] = [
     TestCase(name: "a guided break spent typing does not reset the timers") {
         var sim = Sim()
         sim.work(55 * 60)
-        sim.tracker.beginGuidedBreak(at: sim.now)
+        sim.tracker.beginGuidedBreak(at: sim.now, until: sim.now + 180)
         sim.work(3 * 60)
         let e = sim.tracker.finishGuidedBreak(at: sim.now, idleFraction: 0.1)
         expect(e.isEmpty)
@@ -190,7 +190,7 @@ let activityTests: [TestCase] = [
     TestCase(name: "a guided break taken at the desk while mostly idle counts") {
         var sim = Sim()
         sim.work(55 * 60)
-        sim.tracker.beginGuidedBreak(at: sim.now)
+        sim.tracker.beginGuidedBreak(at: sim.now, until: sim.now + 180)
         sim.idle(100)   // under the away threshold
         sim.work(80)
         let e = sim.tracker.finishGuidedBreak(at: sim.now, idleFraction: 0.7)

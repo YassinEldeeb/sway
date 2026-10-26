@@ -5,5 +5,6 @@ let code = runAll([
     ("Scheduling & notifications", schedulingTests),
     ("Posture", postureTests),
     ("Persistence & content", storeTests),
+    ("Review regressions", regressionTests),
 ])
 exit(code)

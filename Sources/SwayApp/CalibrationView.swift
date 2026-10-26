@@ -7,6 +7,11 @@ struct CalibrationView: View {
     @State private var devices = CameraService.devices()
     @State private var deviceID: String?
     @State private var step = Step.intro
+    /// Cleared when the window closes, so a permission answer that arrives
+    /// later doesn't start the camera with no window.
+    @State private var alive = Alive()
+
+    final class Alive { var value = true }
 
     enum Step { case intro, capture }
 
@@ -31,6 +36,7 @@ struct CalibrationView: View {
             if let id = deviceID, !devices.contains(where: { $0.id == id }) { deviceID = devices.first?.id }
         }
         .onDisappear {
+            alive.value = false
             if model.calibrationSession != nil { model.cancelCalibration() }
         }
     }
@@ -81,8 +87,9 @@ struct CalibrationView: View {
     }
 
     private func start() {
+        let alive = self.alive
         let go = {
-            guard let id = deviceID, let d = devices.first(where: { $0.id == id }) else { return }
+            guard alive.value, let id = deviceID, let d = devices.first(where: { $0.id == id }) else { return }
             model.beginCalibration(device: d)
             step = .capture
         }

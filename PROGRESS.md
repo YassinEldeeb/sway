@@ -4,8 +4,9 @@ Last updated: 2026-10-26.
 
 ## Status
 
-All five phases are implemented, the app builds and runs, and 62 automated
-tests pass. What still needs hardware, permissions or a person is listed
+All five phases are implemented, the app builds and runs, and 71 automated
+tests pass. A fresh-eyes review found 16 defects; all are fixed (see "Review
+fixes"). What still needs hardware, permissions or a person is listed
 under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Completed
@@ -37,7 +38,7 @@ under "Not yet verified" and in [docs/VALIDATION.md](docs/VALIDATION.md).
 ## Test results
 
 `swift build --product sway-tests && .build/debug/sway-tests`, last run
-2026-10-26: **62 passed, 0 failed, 258 checks, ~1.5 s.**
+2026-10-26: **71 passed, 0 failed, 281 checks, ~1.5 s.**
 
 Covered: activity-session calculations; break scheduling; sleep/wake (two
 hours of sleep, a missed sleep notification, sleep while away); midnight
@@ -78,7 +79,64 @@ body pose on every third frame, is ≈ 10 ms of Vision work per 2 s, about
 Settings → Diagnostics shows the live numbers once the camera runs.
 
 ### Idle run
-(filled in below)
+
+This run used the bundled release binary with demo data, the camera off, the
+menu-bar item live and the 5 s tick running. It was measured with `ps` CPU
+time and `footprint` over 300 s, on 2026-10-26:
+
+- **CPU: 0.127% of one core on average** (0.38 s of CPU in 300 s).
+- **Memory: 21 MB physical footprint.** Resident size stayed at 69–79 MB,
+  sampled every 30 s, with no growth.
+
+## Review fixes
+
+An independent reviewer audited the code and found 16 defects. It
+reproduced 8 of them with probes against the code; the other 8 came from
+reading. All are fixed. The 9 regression tests are in
+`Sources/SwayTests/RegressionTests.swift`. The tests that compile against the
+old API were run on the pre-fix commit, and 3 of 4 failed there. The 4th was
+then strengthened; on the old code it should score 0.63 against a 0.55
+threshold (calculated, not re-run).
+
+- **Data loss:** on the first event of a new day, yesterday's file was
+  overwritten with a nearly empty record. The ledger now loads a day from
+  disk before updating it.
+- **Guided breaks:**
+  - A guided break left over from a relaunch could retract hours of work.
+    Guided breaks now carry a planned end, stale ones are ignored, and a
+    relaunch cancels one.
+  - A guided break taken at the desk counted as both work and break.
+- **Late timers:** a late tick (App Nap) while typing counted as a break.
+  Sway now opts out of App Nap and measures real sleep from the gap between
+  the continuous and absolute clocks.
+- **Long-session prompts:** after three dismissals they got more frequent.
+  They now keep their backoff.
+- **Menu-bar card:** Dismiss and Snooze didn't hide it, and repeated clicks
+  silenced the reminder kind. Responses are now tracked per reminder: they
+  hide the card and count once.
+- **Camera:**
+  - Posture state could freeze on stale data, and a start/stop race could
+    leave the camera reported as on while dead. A watchdog now catches
+    stalled frames, and stale starts are dropped by generation.
+  - Error recovery could restart a camera that had been stopped.
+  - The frame-rate setting could raise an exception on cameras with
+    fractional rates. It now uses durations from the supported range, set
+    after configuration.
+  - A camera-permission answer after the calibration window closed could
+    start the camera with no window open.
+  - A camera-queue data race and a main-thread `queue.sync`.
+  - Sway's own camera could count as "another app's camera" and hold all
+    notifications.
+- **Suspension:** sleep, display, lock and session states shared one flag,
+  so a key press at the lock screen restarted tracking and the camera.
+  Each reason is now tracked separately and checked against the live
+  session state on every tick.
+- **Head-down detection:** a tiny or upward "look at your keyboard"
+  reference made it hypersensitive or inverted. The reference now has to be
+  a clear downward move, and the score is floored.
+- **Dashboard:** it read up to 30 day files on every render. Past days are
+  now cached, and Vision stats are published once per tick.
+- **Clock changes:** a backwards clock step credited time twice.
 
 ## Not yet verified (needs hardware, permissions or interaction)
 

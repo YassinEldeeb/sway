@@ -73,6 +73,9 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     /// Kinds silenced (menu bar only) until the given time after repeated
     /// dismissals.
     private(set) var silencedUntil: [ReminderKind: Date] = [:]
+    /// Instances the user already responded to (acted on, dismissed, marked
+    /// not helpful). They leave the menu-bar card and count only once.
+    private(set) var answeredInstances: [String: Date] = [:]
 
     public static let silenceAfterStreak = 3
 
@@ -100,11 +103,11 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     public func decide(candidates: [DueReminder], now: Date, context: InterruptionContext, settings: CoachSettings, adjustments: Adjustments = .neutral) -> InterventionDecision {
         let sorted = candidates.sorted { $0.priority > $1.priority }
         if let hold = holdReason(now: now, context: context, settings: settings) {
-            return InterventionDecision(deliver: nil, passive: sorted, hold: hold)
+            return InterventionDecision(deliver: nil, passive: sorted.filter { !isHidden($0, now: now) }, hold: hold)
         }
         var passive: [DueReminder] = []
         var chosen: DueReminder?
-        for c in sorted {
+        for c in sorted where !isHidden(c, now: now) {
             if chosen == nil, canDeliver(c, now: now, settings: settings, adjustments: adjustments) {
                 chosen = c
             } else {
@@ -112,6 +115,15 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
             }
         }
         return InterventionDecision(deliver: chosen, passive: passive, hold: nil)
+    }
+
+    /// Answered, or snoozed and not yet back.
+    func isHidden(_ c: DueReminder, now: Date) -> Bool {
+        if answeredInstances[c.instanceID] != nil { return true }
+        // A snoozed reminder hides until it returns; once re-delivered
+        // (marked .distantFuture) it shows again.
+        if let s = snoozes[c.instanceID], s.until > now, s.until != .distantFuture { return true }
+        return false
     }
 
     func canDeliver(_ c: DueReminder, now: Date, settings: CoachSettings, adjustments: Adjustments) -> Bool {
@@ -165,7 +177,16 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
         return true
     }
 
-    public mutating func record(_ response: PromptResponse, kind: ReminderKind, now: Date) {
+    /// Records a response. Responses to an instance that was already answered
+    /// don't count again, so clicking "Dismiss" twice is one dismissal.
+    public mutating func record(_ response: PromptResponse, kind: ReminderKind, instanceID: String? = nil, now: Date) {
+        if let id = instanceID, response != .snoozed, response != .helpful {
+            if answeredInstances[id] != nil { return }
+            answeredInstances[id] = now
+            if answeredInstances.count > 400 {
+                answeredInstances = answeredInstances.filter { now.timeIntervalSince($0.value) < 86_400 * 2 }
+            }
+        }
         switch response {
         case .accepted, .helpful:
             negativeStreak[kind] = 0
@@ -175,7 +196,9 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
         case .dismissed, .unhelpful:
             let streak = (negativeStreak[kind] ?? 0) + (response == .unhelpful ? 2 : 1)
             negativeStreak[kind] = streak
-            if streak >= Self.silenceAfterStreak {
+            // Long-session prompts are never silenced, so they keep their
+            // growing cooldown instead of starting over.
+            if streak >= Self.silenceAfterStreak, kind != .longSession {
                 // Back off to the menu bar for the rest of the day.
                 let endOfDay = Calendar.current.startOfDay(for: now).addingTimeInterval(86_400)
                 silencedUntil[kind] = endOfDay

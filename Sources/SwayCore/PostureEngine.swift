@@ -178,9 +178,12 @@ public struct PostureEngine: Sendable {
             if let ref = cal.lookDown {
                 // Projection onto the user's own "looking at the keyboard"
                 // movement: 1.0 means as far down as that reference.
+                // The reference drop is floored at 0.3 face heights so a
+                // small reference can't make detection hypersensitive.
+                let refDrop = max(ref.x, 0.3)
                 let refPitch = ref.y / 20, curPitch = dPitch / 20
-                let denom = ref.x * ref.x + refPitch * refPitch
-                headDown = denom > 0 ? (drop * ref.x + curPitch * refPitch) / denom : drop / 0.5
+                let denom = refDrop * refDrop + refPitch * refPitch
+                headDown = denom > 0 ? (drop * refDrop + curPitch * refPitch) / denom : drop / 0.5
             } else {
                 // Without a reference the pitch sign is not trusted; half a
                 // face height lower than baseline scores 1.0.

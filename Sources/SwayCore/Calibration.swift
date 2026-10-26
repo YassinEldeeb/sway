@@ -112,7 +112,10 @@ public enum CalibrationBuilder {
             let drop = (cy - ldY) / h
             let ldPitches = ldValid.compactMap(\.pitch)
             let dPitch = (baseline.pitch != nil && ldPitches.count >= 2) ? median(ldPitches) - baseline.pitch! : 0
-            if abs(drop) >= 0.12 || abs(dPitch) >= 6 {
+            // The face must clearly move down (in the image) and by well more
+            // than sitting-still noise; a tiny or upward reference would make
+            // head-down detection hypersensitive or inverted.
+            if drop >= max(0.15, 4 * noise) {
                 lookDownRef = Point2(drop, dPitch)
                 notes.append("Head-down detection is tuned to how your head moved when you looked at your keyboard.")
             } else {

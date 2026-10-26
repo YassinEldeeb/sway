@@ -59,8 +59,9 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
     public private(set) var lastMicroBreakEnd: Date?
     public private(set) var lastLongBreakEnd: Date?
     public private(set) var lastEyeRestAt: Date?
-    /// Start of a guided break the user began in Sway, if one is running.
+    /// Start and planned end of a guided break the user began in Sway.
     public private(set) var guidedBreakStart: Date?
+    public private(set) var guidedBreakEnd: Date?
 
     /// A tick gap longer than this means the process was not running (sleep,
     /// suspension, debugger) and the gap must not be credited as work.
@@ -88,22 +89,33 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
     // MARK: Updates
 
     /// Regular sample. `idleSeconds` is the system's time since the last
-    /// keyboard/mouse/trackpad event.
-    public mutating func tick(now: Date, idleSeconds: TimeInterval, settings: CoachSettings) -> [ActivityEvent] {
+    /// keyboard/mouse/trackpad event. `sleptDuringGap` is how long the system
+    /// was asleep since the previous tick, when the caller can measure it
+    /// (nil = unknown).
+    public mutating func tick(now: Date, idleSeconds: TimeInterval, settings: CoachSettings, sleptDuringGap: TimeInterval? = nil) -> [ActivityEvent] {
         let idle = max(0, idleSeconds)
         let inputAt = now.addingTimeInterval(-idle)
+        if let last = lastTick, now <= last {
+            // The clock went backwards. A small step: wait for it to catch up
+            // rather than credit the same interval twice. A large step (a
+            // manual clock change): start over from the new time.
+            if last.timeIntervalSince(now) > Self.maxTickGap {
+                lastTick = now
+                lastInputAt = inputAt
+                if let s = sessionStart, s > now { sessionStart = now }
+            }
+            return []
+        }
         defer {
             lastTick = now
             lastInputAt = inputAt
         }
-        guard let last = lastTick, now > last else {
-            if lastTick == nil {
-                if idle >= settings.awayThreshold {
-                    mode = .away(since: inputAt)
-                } else {
-                    mode = .active
-                    sessionStart = now
-                }
+        guard let last = lastTick else {
+            if idle >= settings.awayThreshold {
+                mode = .away(since: inputAt)
+            } else {
+                mode = .active
+                sessionStart = now
             }
             return []
         }
@@ -112,7 +124,11 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
 
         switch mode {
         case .active:
-            if gap > Self.maxTickGap {
+            if gap > Self.maxTickGap, let slept = sleptDuringGap, slept < 30, idle < settings.awayThreshold {
+                // A late timer (App Nap, a busy system) while the Mac stayed
+                // awake and the user kept working: the gap was work.
+                events.append(.active(from: last, to: now))
+            } else if gap > Self.maxTickGap {
                 // We were not running. Whatever happened in between, the user
                 // has been idle since `inputAt`; anything before that inside
                 // the gap is unknown and treated as away.
@@ -184,12 +200,14 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
     }
 
     /// The user started a guided break ("Take 3 minutes").
-    public mutating func beginGuidedBreak(at now: Date) {
+    public mutating func beginGuidedBreak(at now: Date, until end: Date) {
         guidedBreakStart = now
+        guidedBreakEnd = end
     }
 
     public mutating func cancelGuidedBreak() {
         guidedBreakStart = nil
+        guidedBreakEnd = nil
     }
 
     /// The guided break's timer ended. If the user is still away, the break
@@ -199,10 +217,11 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
     public mutating func finishGuidedBreak(at now: Date, idleFraction: Double) -> [ActivityEvent] {
         guard let start = guidedBreakStart else { return [] }
         guard isActive else { return [] }
-        guidedBreakStart = nil
+        cancelGuidedBreak()
         guard now.timeIntervalSince(start) >= 150, idleFraction >= 0.6 else { return [] }
         let record = BreakRecord(start: start, end: now, kind: .long, source: .acknowledged)
-        var events: [ActivityEvent] = []
+        // The ticks during the break credited it as work; it was a break.
+        var events: [ActivityEvent] = [.retractActive(from: max(start, sessionStart ?? start), to: now)]
         if let s = sessionStart, start > s {
             events.append(.sessionEnded(start: s, end: start))
         }
@@ -223,10 +242,14 @@ public struct ActivityTracker: Codable, Equatable, Sendable {
         var start = awayStart
         var source = awaySource
         var longMin = settings.longBreakMinAway
-        if let guided = guidedBreakStart {
+        let guided = guidedBreakStart
+        let guidedEnd = guidedBreakEnd ?? .distantPast
+        if guided != nil { cancelGuidedBreak() }
+        // Only a guided break the user actually left during counts; a stale
+        // one (e.g. left over from a relaunch) is ignored.
+        if let guided, awayStart <= guidedEnd.addingTimeInterval(settings.awayThreshold) {
             // The user left during a guided break: count it from the guided
             // start, and a guided break of 2.5+ minutes counts as long.
-            guidedBreakStart = nil
             if guided < start {
                 // The guided start was credited as active by earlier ticks.
                 events.append(.retractActive(from: max(guided, sessionStart ?? guided), to: start))

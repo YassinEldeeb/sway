@@ -92,13 +92,22 @@ public enum DayKey {
 
 /// Applies tracker and posture events to daily records. Pure value type so
 /// accounting is testable without the file system.
-public struct Ledger: Equatable, Sendable {
+public struct Ledger: Equatable {
     public var records: [String: DailyRecord] = [:]
+    /// Loads a day that isn't in memory, so an event for an earlier day (an
+    /// overnight absence closing in the morning) updates that day's saved
+    /// record instead of replacing it with an empty one.
+    public var loader: ((String) -> DailyRecord?)?
 
-    public init(records: [String: DailyRecord] = [:]) { self.records = records }
+    public init(records: [String: DailyRecord] = [:], loader: ((String) -> DailyRecord?)? = nil) {
+        self.records = records
+        self.loader = loader
+    }
 
-    public mutating func record(_ day: String) -> DailyRecord {
-        records[day] ?? DailyRecord(day: day)
+    public static func == (a: Ledger, b: Ledger) -> Bool { a.records == b.records }
+
+    public func record(_ day: String) -> DailyRecord {
+        records[day] ?? loader?(day) ?? DailyRecord(day: day)
     }
 
     public mutating func note(_ text: String, at: Date, calendar: Calendar = .current) {
@@ -106,7 +115,7 @@ public struct Ledger: Equatable, Sendable {
     }
 
     public mutating func update(_ day: String, _ f: (inout DailyRecord) -> Void) {
-        var r = records[day] ?? DailyRecord(day: day)
+        var r = record(day)
         f(&r)
         records[day] = r
     }
