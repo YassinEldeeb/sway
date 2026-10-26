@@ -11,10 +11,17 @@ public enum PostureReminders {
     ///   tracking reliably or the calibration looks out of date).
     /// - `setupIssues`: issues that keep recurring today; they get a
     ///   once-a-day workstation suggestion instead of repeated reminders.
-    /// - `breakDue` / `nextBreakAt`: from `BreakScheduler`.
-    public static func candidates(active: [ActiveIssue], setupIssues: Set<PostureIssue>, breakDue: Bool, nextBreakAt: Date?, now: Date, settings: CoachSettings) -> [DueReminder] {
+    /// - `breakDueAt`: when the break that is due now became due, from
+    ///   `BreakScheduler` (nil when none is due); `nextBreakAt`: the next one.
+    ///
+    /// A posture reminder gives way only around a break's own moment, from
+    /// 5 min before it until 5 min after it fell due. An ignored break stays
+    /// due until a break is taken, so yielding to "a break is due" alone
+    /// would silence posture reminders for as long as breaks are ignored.
+    public static func candidates(active: [ActiveIssue], setupIssues: Set<PostureIssue>, breakDueAt: Date?, nextBreakAt: Date?, now: Date, settings: CoachSettings) -> [DueReminder] {
         var out: [DueReminder] = []
-        let breakSoon = breakDue || (nextBreakAt.map { $0.timeIntervalSince(now) < yieldToBreak } ?? false)
+        let breakSoon = (breakDueAt.map { now.timeIntervalSince($0) < yieldToBreak } ?? false)
+            || (nextBreakAt.map { $0 > now && $0.timeIntervalSince(now) < yieldToBreak } ?? false)
         // Once the user has moved back, the reminder is over: it leaves the
         // menu bar at once and any notification is removed.
         for a in active where !a.easing {

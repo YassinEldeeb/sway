@@ -271,9 +271,9 @@ final class AppModel: ObservableObject {
 
     private func evaluate() {
         var candidates = BreakScheduler.due(now: now, tracker: runtime.tracker, settings: settings, adjustments: adjustments)
-        let breakDue = candidates.contains { $0.kind.isBreak }
+        let breakDueAt = candidates.filter(\.kind.isBreak).map(\.dueAt).max()
         if guidedBreak == nil {
-            candidates += PostureReminders.candidates(active: activeIssues, setupIssues: patternIssues, breakDue: breakDue,
+            candidates += PostureReminders.candidates(active: activeIssues, setupIssues: patternIssues, breakDueAt: breakDueAt,
                                                       nextBreakAt: nextBreak?.at, now: now, settings: settings)
         }
         context.pausedUntil = runtime.pausedUntil

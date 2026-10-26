@@ -22,8 +22,8 @@ private struct Coach {
 
     mutating func evaluate() {
         var c = BreakScheduler.due(now: sim.now, tracker: sim.tracker, settings: sim.settings)
-        let breakDue = c.contains { $0.kind.isBreak }
-        c += PostureReminders.candidates(active: active, setupIssues: setupIssues, breakDue: breakDue,
+        let breakDueAt = c.filter(\.kind.isBreak).map(\.dueAt).max()
+        c += PostureReminders.candidates(active: active, setupIssues: setupIssues, breakDueAt: breakDueAt,
                                          nextBreakAt: BreakScheduler.next(now: sim.now, tracker: sim.tracker, settings: sim.settings)?.at,
                                          now: sim.now, settings: sim.settings)
         last = engine.evaluate(candidates: c, now: sim.now, context: context, settings: sim.settings)
@@ -63,7 +63,7 @@ let notificationTests: [TestCase] = [
         expect(NotificationRouting.route(.button(.openSetup), kind: .workstationReview) == (.openSetup, .accepted))
     },
     TestCase(name: "a recurring-pattern suggestion points at the matching setup item") {
-        let r = PostureReminders.candidates(active: [], setupIssues: [.headDown], breakDue: false, nextBreakAt: nil, now: t0, settings: CoachSettings())
+        let r = PostureReminders.candidates(active: [], setupIssues: [.headDown], breakDueAt: nil, nextBreakAt: nil, now: t0, settings: CoachSettings())
         expectEqual(r.map(\.kind), [.workstationReview])
         expectEqual(r.first?.level, .setup)
         let issue = PostureReminders.setupIssue(of: r.first?.instanceID ?? "")
@@ -206,19 +206,31 @@ let notificationTests: [TestCase] = [
         let other = reminder(.longBreak, "lb", at: t0, priority: 80)
         expectEqual(e.blocker(other, now: t0 + 9 * 60, settings: s), .hourlyBudget(until: t0 + 3600))
     },
-    TestCase(name: "a posture reminder yields to a break that is due or about to be") {
+    TestCase(name: "a posture reminder yields to a break that just fell due or is about to") {
         let s = CoachSettings()
         let a = posture(.headDown, since: t0)
         let at = t0 + 9 * 60
-        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDue: false, nextBreakAt: nil, now: at, settings: s).first?.level, .notify)
-        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDue: true, nextBreakAt: nil, now: at, settings: s).first?.level, .menu)
-        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDue: false, nextBreakAt: at + 4 * 60, now: at, settings: s).first?.level, .menu)
-        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDue: false, nextBreakAt: at + 20 * 60, now: at, settings: s).first?.level, .notify)
-        let early = PostureReminders.candidates(active: [a], setupIssues: [], breakDue: false, nextBreakAt: nil, now: t0 + 6 * 60, settings: s).first
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: nil, now: at, settings: s).first?.level, .notify)
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: at - 60, nextBreakAt: nil, now: at, settings: s).first?.level, .menu)
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: at - 6 * 60, nextBreakAt: nil, now: at, settings: s).first?.level, .notify,
+                    "a break ignored for a while no longer holds posture back")
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at - 6 * 60, now: at, settings: s).first?.level, .notify,
+                    "a next-break time already past doesn't either")
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at + 4 * 60, now: at, settings: s).first?.level, .menu)
+        expectEqual(PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: at + 20 * 60, now: at, settings: s).first?.level, .notify)
+        let early = PostureReminders.candidates(active: [a], setupIssues: [], breakDueAt: nil, nextBreakAt: nil, now: t0 + 6 * 60, settings: s).first
         expectEqual(early?.level, .menu)
         expect(early?.note?.hasPrefix("A notification follows at") == true)
-        let recurring = PostureReminders.candidates(active: [a], setupIssues: [.headDown], breakDue: false, nextBreakAt: nil, now: at, settings: s)
+        let recurring = PostureReminders.candidates(active: [a], setupIssues: [.headDown], breakDueAt: nil, nextBreakAt: nil, now: at, settings: s)
         expectEqual(recurring.map(\.level), [.menu, .setup], "the setup suggestion speaks instead")
+    },
+    TestCase(name: "ignoring a break does not silence posture reminders") {
+        var c = Coach()
+        c.work(25 * 60 + 10)
+        expectEqual(c.count(.microBreak), 1, "movement break sent at 25 min and ignored")
+        c.active = [posture(.forwardLean, since: c.sim.now)]
+        c.work(9 * 60)
+        expectEqual(c.count(.forwardLean), 1, "the lean is notified while the ignored break is still due")
     },
     TestCase(name: "the decision log records changes once, with reasons") {
         var c = Coach()
