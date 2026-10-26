@@ -167,6 +167,8 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     /// Last time a hold that settles was in effect.
     private(set) var heldAt: Date?
 
+    public var deliveryTimes: [Date] { deliveries }
+
     public static let silenceAfterStreak = 3
     /// Quiet time after a call, full-screen app, pause or quiet hours ends.
     public static let settleAfterHold: TimeInterval = 3 * 60

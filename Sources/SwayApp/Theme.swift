@@ -1,3 +1,4 @@
+import AppKit
 import SwayCore
 import SwiftUI
 
@@ -87,4 +88,18 @@ extension TrackingStatus {
 
 extension TimeInterval {
     var minutesText: String { Format.duration(self) }
+}
+
+/// Deep links into System Settings panes Sway may need.
+enum SystemSettingsLink {
+    case camera, notifications
+
+    static func open(_ pane: SystemSettingsLink) {
+        let url: String
+        switch pane {
+        case .camera: url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera"
+        case .notifications: url = "x-apple.systempreferences:com.apple.preference.notifications"
+        }
+        if let u = URL(string: url) { NSWorkspace.shared.open(u) }
+    }
 }

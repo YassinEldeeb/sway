@@ -347,6 +347,36 @@ private struct DiagnosticsView: View {
                 Text("Over the line isn't a problem yet: it has to stay there for the set time (Posture tab) before it counts, and you're told only after that.")
                     .font(.caption).foregroundStyle(.secondary)
             }
+            Section("Reminders right now") {
+                if let hold = model.decision.hold { row("Held", hold.label) }
+                if model.decision.statuses.isEmpty {
+                    Text("Nothing is due.").foregroundStyle(.secondary)
+                }
+                ForEach(model.decision.statuses, id: \.reminder.instanceID) { st in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(st.reminder.title)
+                        Text(st.explanation).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                row("Sent in the last hour", "\(model.notificationsLastHour) of \(model.settings.maxNotificationsPerHour)")
+                row("Sent today", "\(model.notificationsToday) of \(model.settings.maxNotificationsPerDay)")
+            }
+            Section("Calibration and patterns") {
+                row("Calibration", model.calibration.map { "\($0.cameraName), \($0.createdAt.formatted(date: .abbreviated, time: .shortened))" } ?? "None")
+                row("Calibration health", model.posture.health.isSuspect ? "May be out of date (warnings paused)" : "Looks consistent")
+                let flags = model.today.frequentPatterns
+                row("Recurring in short bouts today", flags.isEmpty ? "None" : flags.keys.map { $0.title }.sorted().joined(separator: ", "))
+            }
+            Section("Decision log (newest first)") {
+                let entries = model.runtime.decisionLog.entries.suffix(40).reversed()
+                if entries.isEmpty { Text("No decisions yet.").foregroundStyle(.secondary) }
+                ForEach(Array(entries.enumerated()), id: \.offset) { _, e in
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(e.at.formatted(date: .omitted, time: .shortened)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        Text(e.text).font(.caption).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
             Section("Signals") {
                 row("Idle for", String(format: "%.0f s", SystemSignals.idleSeconds()))
                 row("Mic/camera in use elsewhere", model.context.micOrCameraInUseByOthers ? "Yes" : "No")

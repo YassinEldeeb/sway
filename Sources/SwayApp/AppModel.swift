@@ -188,6 +188,9 @@ final class AppModel: ObservableObject {
     /// The reminder to show in the menu (delivered or passive).
     var attention: DueReminder? { decision.deliver ?? decision.passive.first }
 
+    var notificationsLastHour: Int { runtime.engine.deliveryTimes.filter { now.timeIntervalSince($0) < 3600 }.count }
+    var notificationsToday: Int { runtime.engine.deliveryTimes.filter { Calendar.current.isDate($0, inSameDayAs: now) }.count }
+
     var activeIssues: [ActiveIssue] { cameraState.isRunning ? posture.activeIssues() : [] }
     var buildingIssues: [BuildingIssue] { cameraState.isRunning ? posture.buildingIssues() : [] }
 

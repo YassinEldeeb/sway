@@ -451,6 +451,13 @@ private struct InsightsView: View {
                         ForEach(Array(model.patternIssues).sorted { $0.rawValue < $1.rawValue }, id: \.self) { issue in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(issue.title).font(.system(size: 13, weight: .medium))
+                                if let f = model.today.frequentPatterns[issue] {
+                                    Text("Came up often in short bouts today: about \(Int((f.share * 100).rounded()))% of \(Int(f.observedMinutes.rounded())) min the camera could see you, in \(f.bouts) separate bouts.")
+                                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                                } else {
+                                    Text("Counted as a sustained position several times recently.")
+                                        .font(.system(size: 11)).foregroundStyle(.tertiary)
+                                }
                                 Text(PatternDetector.advice(for: issue)).font(.system(size: 12)).foregroundStyle(.secondary)
                             }
                         }

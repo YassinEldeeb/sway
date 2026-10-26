@@ -21,6 +21,15 @@ struct MenuView: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
             }
+            if model.notifications.isAvailable, model.notifications.authorization == .denied, model.settings.notificationsEnabled {
+                HStack(spacing: 6) {
+                    Label("Notifications are off in System Settings; reminders appear here only", systemImage: "bell.slash")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Open") { SystemSettingsLink.open(.notifications) }.buttonStyle(PillButtonStyle())
+                }
+            }
             postureRow
             actions
             Divider()
@@ -184,17 +193,29 @@ struct MenuView: View {
     // MARK: Posture
 
     private var postureRow: some View {
-        HStack(spacing: 8) {
+        let st = postureState
+        return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "camera.metering.center.weighted.average")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 1) {
-                Text("Posture monitoring").font(.system(size: 12, weight: .medium))
-                Text(postureSubtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 5) {
+                    Text("Posture monitoring").font(.system(size: 12, weight: .medium))
+                    if let color = st.dot { StatusDot(color: color) }
+                }
+                Text(st.line).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                if let detail = st.detail {
+                    Text(detail).font(.system(size: 10.5)).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
-            if model.calibration == nil || model.posture.status == .needsRecalibration {
+            switch st.action {
+            case .calibrate:
                 Button("Calibrate") { WindowManager.shared.show(.calibration) }.buttonStyle(PillButtonStyle())
-            } else {
+            case .recalibrate:
+                Button("Recalibrate") { WindowManager.shared.show(.calibration) }.buttonStyle(PillButtonStyle(prominent: true))
+            case .openCameraSettings:
+                Button("Open Settings") { SystemSettingsLink.open(.camera) }.buttonStyle(PillButtonStyle())
+            case .toggle:
                 Toggle("", isOn: Binding(get: { model.settings.cameraMonitoringEnabled }, set: { model.setCameraMonitoring($0) }))
                     .toggleStyle(.switch)
                     .controlSize(.mini)
@@ -203,22 +224,50 @@ struct MenuView: View {
         }
     }
 
-    private var postureSubtitle: String {
-        if !model.settings.cameraMonitoringEnabled { return model.calibration == nil ? "Optional · uses the camera locally" : "Off" }
-        if model.cameraAuthorization == .denied || model.cameraAuthorization == .restricted { return "Camera access denied in System Settings" }
-        if model.cameraAuthorization == .notDetermined { return "Waiting for camera permission" }
-        if model.isPaused { return "Paused" }
-        if !model.tracker.isActive { return "Camera off while you're away" }
+    private enum PostureAction { case toggle, calibrate, recalibrate, openCameraSettings }
+
+    /// One line on what posture monitoring is doing right now, a detail line
+    /// only when warnings are paused, and the one action that helps.
+    private var postureState: (line: String, detail: String?, dot: Color?, action: PostureAction) {
+        let s = model.settings
+        if !s.cameraMonitoringEnabled {
+            return (model.calibration == nil ? "Optional · uses the camera locally" : "Off", nil, nil, model.calibration == nil ? .calibrate : .toggle)
+        }
+        if model.cameraAuthorization == .denied || model.cameraAuthorization == .restricted {
+            return ("Camera access is off", "Allow Sway in System Settings → Privacy & Security → Camera.", Theme.warm, .openCameraSettings)
+        }
+        if model.cameraAuthorization == .notDetermined { return ("Waiting for camera permission", nil, .yellow, .toggle) }
+        if model.calibration == nil { return ("Needs calibration", nil, Theme.warm, .calibrate) }
+        if model.posture.status == .needsRecalibration { return ("Calibrated with another camera", nil, Theme.warm, .recalibrate) }
+        if model.isPaused { return ("Paused", nil, nil, .toggle) }
+        if !model.tracker.isActive { return ("Camera off while you're away", nil, nil, .toggle) }
         switch model.cameraState {
         case .running:
-            if let issue = model.activeIssues.first { return "\(model.posture.status.label) · \(issue.issue.title.lowercased())" }
-            if let b = model.buildingIssues.first {
-                let n = Int(b.remaining(at: Date()).rounded(.up))
-                return "\(b.issue.title) · counts in \(n / 60):\(String(format: "%02d", n % 60))"
+            switch model.posture.status {
+            case .calibrationSuspect:
+                return ("Calibration may be out of date", "You've looked very different to the camera for a while (moved screen, camera or chair?). Posture warnings are paused.", Theme.warm, .recalibrate)
+            case .lowConfidence:
+                return ("Can't see you clearly · warnings paused", "Check the lighting and that only your face is in view.", .yellow, .toggle)
+            case .searching:
+                return ("Looking for you", nil, .yellow, .toggle)
+            case .lookingAway:
+                return ("Looking at another screen", nil, .green, .toggle)
+            default:
+                if let a = model.activeIssues.first { return (a.issue.title, "Counted as a sustained position.", .green, .toggle) }
+                if let b = model.buildingIssues.first {
+                    let n = Int(b.remaining(at: model.now).rounded(.up))
+                    return ("\(b.issue.title) · counts in \(n / 60):\(String(format: "%02d", n % 60))", nil, .green, .toggle)
+                }
+                return ("Tracking · nothing to report", nil, .green, .toggle)
             }
-            return model.posture.status.label
-        default:
-            return model.cameraState.label
+        case .starting:
+            return ("Starting camera…", nil, .yellow, .toggle)
+        case .unavailable(let why):
+            return ("Camera unavailable", "\(why). Sway retries on its own.", Theme.warm, .toggle)
+        case .unauthorized:
+            return ("Camera access is off", nil, Theme.warm, .openCameraSettings)
+        case .off:
+            return ("Camera off", "It starts within 30 s.", nil, .toggle)
         }
     }
 

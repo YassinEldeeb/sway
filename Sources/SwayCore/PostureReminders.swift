@@ -15,7 +15,9 @@ public enum PostureReminders {
     public static func candidates(active: [ActiveIssue], setupIssues: Set<PostureIssue>, breakDue: Bool, nextBreakAt: Date?, now: Date, settings: CoachSettings) -> [DueReminder] {
         var out: [DueReminder] = []
         let breakSoon = breakDue || (nextBreakAt.map { $0.timeIntervalSince(now) < yieldToBreak } ?? false)
-        for a in active {
+        // Once the user has moved back, the reminder is over: it leaves the
+        // menu bar at once and any notification is removed.
+        for a in active where !a.easing {
             let t = settings.thresholds(for: a.issue)
             let detectedAt = a.since.addingTimeInterval(t.minDuration)
             let notifyAt = detectedAt.addingTimeInterval(settings.postureNotifyAfter)
@@ -25,8 +27,6 @@ public enum PostureReminders {
             let note: String?
             if setupIssues.contains(a.issue) {
                 note = "This keeps coming back today, so Sway suggests a setup change instead of repeating it."
-            } else if a.easing {
-                note = "You've already moved back; this ends shortly."
             } else if breakSoon {
                 note = "A break is due soon and covers this."
             } else if now < notifyAt {

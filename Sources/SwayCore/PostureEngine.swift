@@ -382,7 +382,7 @@ public enum PatternDetector {
     public static func advice(for issue: PostureIssue) -> String {
         switch issue {
         case .headDown:
-            return "Your head keeps tilting down for long stretches. That usually means the screen is too low — on a laptop especially. Raising the screen so its top sits around eye level, with an external keyboard, often helps more than reminders."
+            return "Your head keeps tilting down, often or for long stretches. That often means the screen is too low — on a laptop especially. Raising the screen so its top sits around eye level, with an external keyboard, often helps more than reminders."
         case .forwardLean:
             return "You keep leaning toward the screen. Text size, screen distance or glasses can be the cause: try a larger font or moving the screen a little closer rather than bringing yourself to it."
         case .lateralTilt:

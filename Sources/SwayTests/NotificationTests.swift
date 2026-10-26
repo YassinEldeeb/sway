@@ -96,7 +96,7 @@ let notificationTests: [TestCase] = [
         c.active = [posture(.forwardLean, since: since, easing: true)]   // moved back just before 8 min
         c.work(30)
         expectEqual(c.count(.forwardLean), 0)
-        expectEqual(c.last.statuses.first { $0.reminder.kind == .forwardLean }?.explanation, "You've already moved back; this ends shortly.")
+        expect(!c.last.statuses.contains { $0.reminder.kind == .forwardLean }, "gone from the menu as soon as the user moved back")
     },
     TestCase(name: "a break reminder is removed when the user takes a real break, and not re-sent") {
         var c = Coach()
