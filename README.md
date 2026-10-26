@@ -42,9 +42,9 @@ new one, and keeps your data, calibration and permissions.
 Sway lives in the **menu bar** (a small figure icon near the clock), not in the
 Dock. On first launch a short welcome window opens.
 
-> If the build fails because the Xcode license hasn't been accepted, run
-> `sudo xcodebuild -license` once, or ignore it: the script already builds
-> with the Command Line Tools.
+> If you see a warning that the Xcode license hasn't been accepted, you can
+> ignore it: the script builds with the Command Line Tools instead. (Running
+> `sudo xcodebuild -license` once removes the warning.)
 
 ### 3. Allow notifications (required for reminders)
 
@@ -71,16 +71,16 @@ test notification:
 ```
 
 It prints the permission, alert style and whether macOS accepted and kept the
-test notification. If it says "posted: yes" but you saw no banner, a Focus
-mode is on.
+test notification. If it says "posted: yes" and "style: banners" but you saw
+no banner, a Focus mode is on; "style: none" means banners are turned off in
+System Settings → Notifications → Sway.
 
 ### 4. Optional: posture monitoring with the camera
 
 Sway works without a camera: break reminders need no permissions at all.
 To add posture hints:
 
-1. Menu bar icon → **Calibrate**, or Settings → Posture → turn on **Posture
-   monitoring with the camera**.
+1. Menu bar icon → **Calibrate**, or Settings → Posture → **Calibrate…**.
 2. Click **OK** in the macOS camera prompt.
 3. Sit comfortably facing your screen and follow the calibration steps.
 
@@ -134,6 +134,10 @@ Run the tests:
 ```bash
 swift build --product sway-tests && .build/debug/sway-tests
 ```
+
+If full Xcode is installed but its license hasn't been accepted, `swift`
+fails; put `export DEVELOPER_DIR=/Library/Developer/CommandLineTools` first
+(or run `sudo xcodebuild -license` once).
 
 To run only some tests, pass part of their name, e.g.
 `.build/debug/sway-tests posture`. A name that matches nothing is reported

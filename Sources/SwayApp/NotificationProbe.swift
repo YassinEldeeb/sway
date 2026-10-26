@@ -52,7 +52,9 @@ enum NotificationProbe {
                         let kept = list.contains { $0.request.identifier == id }
                         print("in Notification Centre after 2 s: \(kept ? "yes" : "no")")
                         print("other Sway notifications there: \(list.filter { $0.request.identifier != id }.map(\.request.identifier))")
-                        exit(kept ? 0 : 1)
+                        // Banners need permission and a style other than None;
+                        // Notification Centre is information only.
+                        exit(s.alertStyle == .none ? 1 : 0)
                     }
                 }
             }

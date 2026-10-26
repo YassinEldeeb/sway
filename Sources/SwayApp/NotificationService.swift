@@ -177,8 +177,13 @@ final class NotificationService: NSObject, ObservableObject, UNUserNotificationC
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
         let info = response.notification.request.content.userInfo
-        let instance = info["instance"] as? String ?? ""
-        let kind = (info["kind"] as? String).flatMap(ReminderKind.init(rawValue:)) ?? .microBreak
+        // Test notifications carry no reminder: a click on one is not an
+        // answer to anything.
+        guard let instance = info["instance"] as? String,
+              let kind = (info["kind"] as? String).flatMap(ReminderKind.init(rawValue:)) else {
+            completionHandler()
+            return
+        }
         let id = response.actionIdentifier
         let tap: NotificationTap?
         switch id {

@@ -144,6 +144,10 @@ final class AppModel: ObservableObject {
         power.onChange = { [weak self] reason, active in self?.powerChanged(reason, active: active) }
         notifications.onPostFailed = { [weak self] kind, why in
             guard let self else { return }
+            // The new one never replaced the old banner, which would now be
+            // stale: remove it.
+            self.notifications.clear(kind)
+            self.runtime.engine.forgetPosted(kind)
             self.runtime.decisionLog.note("\(kind.title): macOS didn't show the notification (\(why))", kind: kind, at: self.now)
         }
         notifications.onTap = { [weak self] tap, instance, kind in

@@ -321,6 +321,10 @@ public struct InterventionEngine: Codable, Equatable, Sendable {
     /// deleted data).
     public mutating func forgetPosted() { posted = [:] }
 
+    /// macOS refused the notification just recorded as posted: nothing of
+    /// that kind is on screen any more.
+    public mutating func forgetPosted(_ kind: ReminderKind) { posted[kind] = nil }
+
     public mutating func recordDelivered(_ r: DueReminder, at now: Date) {
         deliveries.append(now)
         deliveries.removeAll { now.timeIntervalSince($0) > 86_400 }
